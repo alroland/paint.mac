@@ -75,8 +75,11 @@ Grab the build for your platform from the [Releases page](https://github.com/alr
 
 Open the disk image and drag **Paint.mac** into Applications.
 
-The app is **not code-signed**, so macOS will refuse the first launch. Either right-click the app and
-choose **Open** (then confirm), or clear the quarantine flag:
+The app is ad-hoc signed but **not notarised**, so macOS blocks the first launch. Open it once, dismiss
+the warning, then go to **System Settings → Privacy & Security** and click **Open Anyway** next to the
+Paint.mac message. (Right-click → Open no longer bypasses Gatekeeper on macOS 15 and later.)
+
+Or clear the quarantine flag from the terminal, which skips the prompt entirely:
 
 ```bash
 xattr -dr com.apple.quarantine /Applications/Paint.mac.app

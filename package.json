@@ -56,8 +56,7 @@
         }
       ],
       "darkModeSupport": true,
-      "icon": "build/icon.icns",
-      "identity": null
+      "icon": "build/icon.icns"
     },
     "copyright": "\u00a9 2026 Al Roland",
     "win": {
@@ -132,7 +131,8 @@
     },
     "dmg": {
       "artifactName": "${productName}-${version}-${arch}.${ext}"
-    }
+    },
+    "afterPack": "scripts/adhoc-sign.js"
   },
   "homepage": "https://www.alroland.com/paint.mac"
 }
