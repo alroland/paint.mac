@@ -1,0 +1,115 @@
+<!doctype html>
+<meta charset="utf-8">
+<style>html,body{margin:0;background:transparent}</style>
+<canvas id="c" width="1024" height="1024"></canvas>
+<script>
+const g = document.getElementById('c').getContext('2d');
+const S = 1024;
+
+// macOS icon grid: the artwork sits inside a rounded square with a margin.
+const pad = 92;
+const size = S - pad * 2;
+const r = size * 0.225;
+
+const bg = g.createLinearGradient(pad, pad, pad + size, pad + size);
+bg.addColorStop(0, '#4f8bff');
+bg.addColorStop(0.55, '#3b5ee8');
+bg.addColorStop(1, '#7a3fd6');
+g.fillStyle = bg;
+g.beginPath();
+g.roundRect(pad, pad, size, size, r);
+g.fill();
+
+// Soft top highlight so the tile does not read as flat.
+const gloss = g.createLinearGradient(0, pad, 0, pad + size * 0.55);
+gloss.addColorStop(0, 'rgba(255,255,255,.26)');
+gloss.addColorStop(1, 'rgba(255,255,255,0)');
+g.save();
+g.beginPath();
+g.roundRect(pad, pad, size, size, r);
+g.clip();
+g.fillStyle = gloss;
+g.fillRect(pad, pad, size, size * 0.55);
+g.restore();
+
+// Artist's palette: an ellipse with a thumb hole, sitting left of centre so
+// the brush has room without covering the paint dabs.
+const cx = S * 0.45, cy = S * 0.55;
+const rx = size * 0.335, ry = size * 0.285;
+const tilt = -0.16;
+
+g.save();
+g.translate(cx, cy);
+g.rotate(tilt);
+g.beginPath();
+g.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2);
+// Thumb hole, punched out with the even-odd rule.
+g.ellipse(rx * 0.46, ry * 0.30, rx * 0.15, ry * 0.19, 0, 0, Math.PI * 2);
+g.fillStyle = '#ffffff';
+g.shadowColor = 'rgba(18,26,64,.36)';
+g.shadowBlur = 36;
+g.shadowOffsetY = 16;
+g.fill('evenodd');
+g.restore();
+
+// Paint dabs, kept to the left and top where nothing overlaps them.
+const dabs = [
+  ['#ff5252', -0.52, -0.34, 0.150],
+  ['#ffc53d', -0.13, -0.55, 0.140],
+  ['#3ecf8e', 0.26, -0.44, 0.130],
+  ['#25a3ff', -0.66, 0.12, 0.130],
+  ['#b06bff', -0.40, 0.50, 0.120]
+];
+g.save();
+g.translate(cx, cy);
+g.rotate(tilt);
+for (const [color, dx, dy, rr] of dabs) {
+  g.beginPath();
+  g.ellipse(dx * rx, dy * ry, rr * rx, rr * rx, 0, 0, Math.PI * 2);
+  g.fillStyle = color;
+  g.fill();
+}
+g.restore();
+
+// Brush, angled in from the lower right with its tip resting on the palette.
+g.save();
+g.translate(S * 0.735, S * 0.60);
+g.rotate(-0.62);
+const bw = size * 0.115;
+const reach = size * 0.30;
+
+g.shadowColor = 'rgba(18,26,64,.30)';
+g.shadowBlur = 26;
+g.shadowOffsetY = 10;
+
+const handle = g.createLinearGradient(-bw / 2, 0, bw / 2, 0);
+handle.addColorStop(0, '#43301f');
+handle.addColorStop(0.42, '#8a5f36');
+handle.addColorStop(1, '#33241650');
+g.fillStyle = handle;
+g.beginPath();
+g.roundRect(-bw / 2, -reach - size * 0.055, bw, reach, bw * 0.5);
+g.fill();
+g.shadowColor = 'transparent';
+
+const ferrule = g.createLinearGradient(-bw / 2, 0, bw / 2, 0);
+ferrule.addColorStop(0, '#9aa6b1');
+ferrule.addColorStop(0.4, '#f4f7fa');
+ferrule.addColorStop(1, '#8b98a3');
+g.fillStyle = ferrule;
+g.beginPath();
+g.roundRect(-bw * 0.58, -size * 0.062, bw * 1.16, size * 0.078, bw * 0.16);
+g.fill();
+
+// Loaded bristles.
+g.fillStyle = '#ff5252';
+g.beginPath();
+g.moveTo(-bw * 0.56, size * 0.018);
+g.quadraticCurveTo(-bw * 0.32, size * 0.115, 0, size * 0.140);
+g.quadraticCurveTo(bw * 0.32, size * 0.115, bw * 0.56, size * 0.018);
+g.closePath();
+g.fill();
+g.restore();
+
+window.__iconReady = true;
+</script>
