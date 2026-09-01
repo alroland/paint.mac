@@ -96,9 +96,10 @@ The installer is unsigned, so SmartScreen will warn on first run — choose **Mo
 
 | Download | For |
 |---|---|
-| `Paint.mac-1.0.0.AppImage` | Any distribution |
-| `paint-mac_1.0.0_amd64.deb` | Debian, Ubuntu, Mint |
-| `paint-mac-1.0.0.x86_64.rpm` | Fedora, RHEL, openSUSE |
+| `Paint.mac-1.0.0.AppImage` | Any distribution, x86-64 |
+| `Paint.mac-1.0.0-arm64.AppImage` | Any distribution, ARM64 |
+| `paint-mac_1.0.0_amd64.deb` | Debian, Ubuntu, Mint — x86-64 |
+| `paint-mac_1.0.0_arm64.deb` | Debian, Ubuntu, Mint — ARM64 |
 
 ```bash
 # AppImage — no installation needed
@@ -107,10 +108,10 @@ chmod +x Paint.mac-1.0.0.AppImage
 
 # Debian / Ubuntu
 sudo apt install ./paint-mac_1.0.0_amd64.deb
-
-# Fedora
-sudo dnf install ./paint-mac-1.0.0.x86_64.rpm
 ```
+
+No `.rpm` is published yet — building one needs `rpmbuild`, which isn't available on the
+machine these releases are cut from. `npm run dist:linux` produces one on a Linux host.
 
 > On some minimal distributions the AppImage needs FUSE:
 > `sudo apt install libfuse2` (Debian/Ubuntu) or run it with `--appimage-extract-and-run`.

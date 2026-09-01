@@ -61,7 +61,7 @@
     },
     "copyright": "\u00a9 2026 Al Roland",
     "win": {
-      "icon": "build/icon.png",
+      "icon": "build/icon.ico",
       "target": [
         {
           "target": "nsis",
