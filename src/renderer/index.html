@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'" />
+  <title>Paint.mac</title>
+  <link rel="stylesheet" href="css/app.css" />
+</head>
+<body>
+  <div id="app">
+    <header id="titlebar">
+      <div class="tb-drag"></div>
+      <div id="tb-title">Untitled</div>
+      <div id="tb-right">
+        <div id="zoom-control">
+          <button class="tb-btn" data-cmd="view.zoomOut" data-tip="Zoom Out" data-tip-key="⌘−" data-tip-desc="Step down through the zoom presets." data-tip-place="bottom">−</button>
+          <select id="zoom-select" data-tip="Zoom Level" data-tip-desc="Jump straight to a zoom preset." data-tip-place="bottom"></select>
+          <button class="tb-btn" data-cmd="view.zoomIn" data-tip="Zoom In" data-tip-key="⌘+" data-tip-desc="Step up through the zoom presets." data-tip-place="bottom">+</button>
+          <button class="tb-btn" data-cmd="view.fit" data-tip="Fit to Window" data-tip-key="⌘B" data-tip-desc="Scale the image so the whole canvas is visible." data-tip-place="bottom">Fit</button>
+        </div>
+      </div>
+    </header>
+
+    <div id="optionsbar"></div>
+
+    <div id="main">
+      <nav id="toolstrip" role="toolbar" aria-label="Tools"></nav>
+
+      <section id="workarea">
+        <div id="ruler-corner"></div>
+        <canvas id="ruler-h"></canvas>
+        <canvas id="ruler-v"></canvas>
+        <div id="viewport">
+          <canvas id="view"></canvas>
+          <div id="overlay-host"></div>
+        </div>
+      </section>
+
+      <aside id="sidebar">
+        <div class="panel" id="panel-color">
+          <div class="panel-head">Colors</div>
+          <div class="panel-body" id="color-body"></div>
+        </div>
+        <div class="panel" id="panel-layers">
+          <div class="panel-head">
+            <span>Layers</span>
+            <div class="panel-head-actions">
+              <button class="mini-btn" data-cmd="layer.add" data-tip="Add Layer" data-tip-key="⇧⌘N" data-tip-desc="Insert an empty layer above the active one." data-tip-place="left">+</button>
+              <button class="mini-btn" data-cmd="layer.duplicate" data-tip="Duplicate Layer" data-tip-key="⇧⌘D" data-tip-desc="Copy the active layer, keeping its opacity and blend mode." data-tip-place="left">⧉</button>
+              <button class="mini-btn" data-cmd="layer.mergeDown" data-tip="Merge Layer Down" data-tip-key="⌘M" data-tip-desc="Combine the active layer into the one beneath it." data-tip-place="left">⤓</button>
+              <button class="mini-btn" data-cmd="layer.delete" data-tip="Delete Layer" data-tip-desc="Remove the active layer. An image always keeps at least one." data-tip-place="left">🗑</button>
+            </div>
+          </div>
+          <div class="panel-body" id="layers-body"></div>
+          <div class="panel-foot" id="layer-props"></div>
+        </div>
+        <div class="panel" id="panel-history">
+          <div class="panel-head">
+            <span>History</span>
+            <div class="panel-head-actions">
+              <button class="mini-btn" data-cmd="edit.undo" data-tip="Undo" data-tip-key="⌘Z" data-tip-desc="Step back one entry in the history." data-tip-place="left">↶</button>
+              <button class="mini-btn" data-cmd="edit.redo" data-tip="Redo" data-tip-key="⇧⌘Z" data-tip-desc="Step forward one entry in the history." data-tip-place="left">↷</button>
+            </div>
+          </div>
+          <div class="panel-body" id="history-body"></div>
+        </div>
+      </aside>
+    </div>
+
+    <footer id="statusbar">
+      <span id="status-tool">Paintbrush</span>
+      <span class="sb-sep"></span>
+      <span id="status-pos">—</span>
+      <span class="sb-sep"></span>
+      <span id="status-size">—</span>
+      <span class="sb-sep"></span>
+      <span id="status-sel">No selection</span>
+      <span class="sb-spacer"></span>
+      <span id="status-msg"></span>
+    </footer>
+  </div>
+
+  <div id="modal-root"></div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
