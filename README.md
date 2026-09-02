@@ -70,8 +70,8 @@ Grab the build for your platform from the [Releases page](https://github.com/alr
 
 | Download | For |
 |---|---|
-| `Paint.mac-1.0.1-arm64.dmg` | Apple Silicon (M1 and later) |
-| `Paint.mac-1.0.1-x64.dmg` | Intel Macs |
+| `Paint.mac-1.0.2-arm64.dmg` | Apple Silicon (M1 and later) |
+| `Paint.mac-1.0.2-x64.dmg` | Intel Macs |
 
 Open the disk image and drag **Paint.mac** into Applications.
 
@@ -86,7 +86,7 @@ project — so macOS blocks the first launch. Anything you download through a br
 Do this *before* opening the disk image and the copied app inherits a clean state:
 
 ```bash
-xattr -dr com.apple.quarantine ~/Downloads/Paint.mac-1.0.1-arm64.dmg
+xattr -dr com.apple.quarantine ~/Downloads/Paint.mac-1.0.2-arm64.dmg
 ```
 
 Or, if you have already installed it:
@@ -116,9 +116,9 @@ works as a bypass on macOS 15 and later.
 
 | Download | For |
 |---|---|
-| `Paint.mac-1.0.1-Setup-x64.exe` | Installer, 64-bit |
-| `Paint.mac-1.0.1-Setup-arm64.exe` | Installer, ARM64 |
-| `Paint.mac-1.0.1-portable.exe` | No install, runs from anywhere |
+| `Paint.mac-1.0.2-Setup-x64.exe` | Installer, 64-bit |
+| `Paint.mac-1.0.2-Setup-arm64.exe` | Installer, ARM64 |
+| `Paint.mac-1.0.2-portable.exe` | No install, runs from anywhere |
 
 The installer is unsigned, so SmartScreen will warn on first run — choose **More info → Run anyway**.
 
@@ -126,27 +126,27 @@ Windows marks downloaded files much as macOS does. If the installer refuses to s
 right-click the `.exe` → **Properties** → tick **Unblock** → OK. Or in PowerShell:
 
 ```powershell
-Unblock-File -Path .\Paint.mac-1.0.1-Setup-x64.exe
+Unblock-File -Path .\Paint.mac-1.0.2-Setup-x64.exe
 ```
 
 ### Linux
 
 | Download | For |
 |---|---|
-| `Paint.mac-1.0.1.AppImage` | Any distribution, x86-64 |
-| `Paint.mac-1.0.1-arm64.AppImage` | Any distribution, ARM64 |
-| `paint-mac_1.0.1_amd64.deb` | Debian, Ubuntu, Mint — x86-64 |
-| `paint-mac_1.0.1_arm64.deb` | Debian, Ubuntu, Mint — ARM64 |
+| `Paint.mac-1.0.2.AppImage` | Any distribution, x86-64 |
+| `Paint.mac-1.0.2-arm64.AppImage` | Any distribution, ARM64 |
+| `paint-mac_1.0.2_amd64.deb` | Debian, Ubuntu, Mint — x86-64 |
+| `paint-mac_1.0.2_arm64.deb` | Debian, Ubuntu, Mint — ARM64 |
 
 Linux has no quarantine flag — an AppImage just needs the executable bit.
 
 ```bash
 # AppImage — no installation needed
-chmod +x Paint.mac-1.0.1.AppImage
-./Paint.mac-1.0.1.AppImage
+chmod +x Paint.mac-1.0.2.AppImage
+./Paint.mac-1.0.2.AppImage
 
 # Debian / Ubuntu
-sudo apt install ./paint-mac_1.0.1_amd64.deb
+sudo apt install ./paint-mac_1.0.2_amd64.deb
 ```
 
 No `.rpm` is published yet — building one needs `rpmbuild`, which isn't available on the
