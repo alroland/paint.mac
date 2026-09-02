@@ -7,6 +7,7 @@ const fsSync = require('node:fs');
 const { buildMenu } = require('./menu');
 
 const isDev = process.argv.includes('--dev');
+const isSelfTest = process.argv.includes('--selftest');
 
 const AUTHOR = 'Al Roland';
 const SITE = 'www.alroland.com/paint.mac';
@@ -101,8 +102,9 @@ function createWindow() {
 
   mainWindow.on('closed', () => { mainWindow = null; });
 
-  if (isDev) {
-    // Surface renderer errors in the terminal during development.
+  if (isDev || isSelfTest) {
+    // Surface renderer errors in the terminal during development, and during a
+    // self-test run so a packaged failure is diagnosable without --dev.
     mainWindow.webContents.on('console-message', (...args) => {
       // Electron >= 37 passes a details object; older versions pass positional args.
       const d = typeof args[1] === 'object' ? args[1] : { level: args[1], message: args[2], lineNumber: args[3], sourceId: args[4] };
@@ -304,7 +306,9 @@ ipcMain.on('app:set-represented-file', (_e, filePath) => {
 });
 
 // The self-test reports back so `npm test` can exit with a meaningful code.
-ipcMain.on('selftest:done', (_e, { passed, total }) => {
+ipcMain.on('selftest:done', (_e, { passed, total, failures = [], skipped = [] }) => {
+  for (const s of skipped) console.log(`self-test SKIP: ${s}`);
+  for (const f of failures) console.error(`self-test FAIL: ${f}`);
   console.log(`self-test: ${passed}/${total} passed`);
   app.exit(passed === total ? 0 : 1);
 });

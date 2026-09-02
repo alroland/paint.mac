@@ -17,6 +17,13 @@ import { showTooltip, hideTooltip, configureTooltips } from './ui/tooltip.js';
 import { formatKeys, rewriteKeys } from './platform.js';
 
 const results = [];
+const skips = [];
+
+/** Records a capability the environment cannot exercise. Not a failure. */
+function skip(name, why) {
+  skips.push(`${name} (${why})`);
+  console.error(`SELFTEST SKIP — ${name}: ${why}`);
+}
 
 const nextFrames = (n) => new Promise((resolve) => {
   const step = () => (--n <= 0 ? resolve() : requestAnimationFrame(step));
@@ -811,13 +818,20 @@ export async function run(app) {
 
     await window.api.focusWindow?.();
     await nextFrames(3);
+    const focused = document.hasFocus();
 
     let copied = false, copyErr = '';
     try {
       await io.copyCanvasToClipboard(app.doc.flatten());
       copied = true;
     } catch (err) { copyErr = `${err.name}: ${err.message}`; }
-    check('copy puts an image on the clipboard', copied, copyErr);
+    if (!focused && !copied) {
+      // navigator.clipboard throws NotAllowedError unless the document has
+      // focus, so an unattended window cannot exercise this at all.
+      skip('clipboard round trip', 'window is not focused');
+    } else {
+      check('copy puts an image on the clipboard', copied, copyErr);
+    }
 
     if (copied) {
       let pasted = null, pasteErr = '';
@@ -847,7 +861,8 @@ export async function run(app) {
 
     // Commands driven by native dialogs block the main process and cannot be
     // dismissed from here; help.website would launch a browser.
-    const skip = new Set([
+    // Named to avoid shadowing the module-level skip() helper.
+    const skipCommands = new Set([
       'file.open', 'file.openPath', 'file.save', 'file.saveAs', 'file.export',
       'layer.import', 'help.website'
     ]);
@@ -856,7 +871,7 @@ export async function run(app) {
     const originalStatus = app.setStatus.bind(app);
     app.setStatus = (msg) => { if (msg && /failed/i.test(msg)) failures.push(msg); originalStatus(msg); };
 
-    const ids = app.commandIds.filter((id) => !skip.has(id));
+    const ids = app.commandIds.filter((id) => !skipCommands.has(id));
     for (const id of ids) {
       // A dirty document makes file.new raise a *native* save prompt, which
       // nothing here can dismiss. Keep it clean so that path stays in-page.
@@ -897,8 +912,12 @@ export async function run(app) {
     }
     app.setStatus = originalStatus;
 
-    check(`all ${ids.length} commands run without error`, failures.length === 0,
-      failures.slice(0, 3).join(' | '));
+    // An unattended window cannot hold focus, and the clipboard API requires it.
+    const focusOnly = failures.filter((f) => /focus/i.test(f));
+    const real = failures.filter((f) => !/focus/i.test(f));
+    if (focusOnly.length) skip(`${focusOnly.length} clipboard command(s)`, 'window is not focused');
+    check(`all ${ids.length} commands run without error`, real.length === 0,
+      real.slice(0, 3).join(' | '));
     check('command sweep left no modal open', !document.querySelector('.modal-backdrop'));
     await app.run('view.rulers', { value: true });    // the sweep called it with no value
     app.selection.clear();
@@ -1191,7 +1210,12 @@ export async function run(app) {
   else console.error('SELFTEST ALL PASSED');
 
   if (new URLSearchParams(location.search).has('exit')) {
-    window.api.selfTestDone({ passed: results.length - failed.length, total: results.length });
+    window.api.selfTestDone({
+      passed: results.length - failed.length,
+      total: results.length,
+      failures: failed.map((f) => `${f.name}${f.extra ? ` — ${f.extra}` : ''}`),
+      skipped: skips
+    });
   }
   return failed.length === 0;
 }

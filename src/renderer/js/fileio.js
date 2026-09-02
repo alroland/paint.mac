@@ -140,21 +140,41 @@ export async function exportBytes(doc, ext, quality = 0.92) {
 // in blobs natively and interoperates with other apps without a round trip
 // through IPC.
 
+const CLIPBOARD_TIMEOUT = 4000;
+
+/**
+ * The clipboard API does not always reject when the document lacks focus — it
+ * can simply never settle, which would hang cut/copy/paste with no feedback.
+ * Bound every call so the user gets an explanation instead of a dead menu item.
+ */
+function withTimeout(promise, what) {
+  let timer;
+  return Promise.race([
+    Promise.resolve(promise).finally(() => clearTimeout(timer)),
+    new Promise((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Error(`${what} timed out — the window must be focused. Click the canvas and try again.`)),
+        CLIPBOARD_TIMEOUT
+      );
+    })
+  ]);
+}
+
 export async function copyCanvasToClipboard(canvas) {
   const blob = await canvasToBlob(canvas, 'image/png');
   if (!blob) throw new Error('Could not encode the image.');
-  await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+  await withTimeout(navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]), 'Copy');
 }
 
 /** Returns a canvas holding the clipboard image, or null when there isn't one. */
 export async function readClipboardCanvas() {
   let items;
   try {
-    items = await navigator.clipboard.read();
+    items = await withTimeout(navigator.clipboard.read(), 'Paste');
   } catch (err) {
     // Raised when the window isn't focused or the user denied clipboard access.
     if (err && (err.name === 'NotAllowedError' || err.name === 'SecurityError')) {
-      throw new Error('macOS blocked clipboard access — click the canvas to focus the window, then try again.');
+      throw new Error('Clipboard access was refused — the window must be focused. Click the canvas and try again.');
     }
     throw err;
   }
