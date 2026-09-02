@@ -20,7 +20,8 @@
     "dist:mac": "electron-builder --mac",
     "dist:win": "electron-builder --win",
     "dist:linux": "electron-builder --linux",
-    "screenshots": "node scripts/make-screenshots.mjs"
+    "screenshots": "node scripts/make-screenshots.mjs",
+    "perf": "electron . --dev --perf"
   },
   "devDependencies": {
     "electron": "^44.0.0",

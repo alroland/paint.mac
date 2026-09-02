@@ -120,23 +120,63 @@ export class Selection {
     this._afterMaskChange();
   }
 
-  /** Shifts the whole mask, used when dragging a selection outline around. */
+  /**
+   * Shifts the whole mask, used when dragging a selection outline around.
+   *
+   * This runs on every pointer move, so it avoids the two full-page scans the
+   * obvious implementation needs: rows are copied with a typed-array memcpy
+   * rather than pixel by pixel, the new bounds are derived by shifting the old
+   * ones instead of rescanning, and the cached marching-ants geometry is
+   * translated rather than rebuilt.
+   */
   translate(dx, dy) {
     if (!this.mask) return;
+    const idx = Math.round(dx), idy = Math.round(dy);
+    if (idx === 0 && idy === 0) return;
+
     const { width: w, height: h } = this;
     const out = new Uint8Array(w * h);
-    const idx = Math.round(dx), idy = Math.round(dy);
-    for (let y = 0; y < h; y++) {
-      const sy = y - idy;
-      if (sy < 0 || sy >= h) continue;
-      for (let x = 0; x < w; x++) {
-        const sx = x - idx;
-        if (sx < 0 || sx >= w) continue;
-        out[y * w + x] = this.mask[sy * w + sx];
+
+    // Copy only the overlapping window, one row at a time.
+    const xFrom = Math.max(0, idx);
+    const xTo = Math.min(w, w + idx);
+    const span = xTo - xFrom;
+    if (span > 0) {
+      const yFrom = Math.max(0, idy);
+      const yTo = Math.min(h, h + idy);
+      for (let y = yFrom; y < yTo; y++) {
+        const srcStart = (y - idy) * w + (xFrom - idx);
+        out.set(this.mask.subarray(srcStart, srcStart + span), y * w + xFrom);
       }
     }
+
+    const prevBounds = this.bounds;
+    const prevOutline = this._outline;
+    // Translation only moves the shape, so the new bounds are the old ones
+    // shifted and clipped to the page.
+    const shifted = prevBounds && {
+      x: Math.max(0, prevBounds.x + idx),
+      y: Math.max(0, prevBounds.y + idy),
+      w: 0, h: 0
+    };
+    if (shifted) {
+      shifted.w = Math.min(w, prevBounds.x + prevBounds.w + idx) - shifted.x;
+      shifted.h = Math.min(h, prevBounds.y + prevBounds.h + idy) - shifted.y;
+    }
+
     this.mask = out;
-    this._afterMaskChange();
+    this._afterMaskChange(shifted && shifted.w > 0 && shifted.h > 0 ? shifted : null);
+
+    // Reuse the outline only while the selection stays fully on the page; once
+    // it clips, the boundary genuinely changes and has to be rebuilt.
+    const clipped = !prevBounds
+      || prevBounds.x + idx < 0 || prevBounds.y + idy < 0
+      || prevBounds.x + prevBounds.w + idx > w || prevBounds.y + prevBounds.h + idy > h;
+    if (!clipped && prevOutline) {
+      this._outline = prevOutline.edge
+        ? { edge: { ...prevOutline.edge, x: prevOutline.edge.x + idx, y: prevOutline.edge.y + idy } }
+        : { path: translatedPath(prevOutline.path, idx, idy), runCount: prevOutline.runCount };
+    }
   }
 
   clone() {
@@ -268,10 +308,12 @@ export class Selection {
     return { canvas: c, x: b.x, y: b.y, w: b.w, h: b.h };
   }
 
-  _afterMaskChange() {
+  _afterMaskChange(knownBounds) {
     this._maskCanvas = null;
     this._outline = undefined;
-    this.bounds = computeBounds(this.mask, this.width, this.height);
+    // computeBounds scans the whole page; callers that already know the answer
+    // (translate) pass it in.
+    this.bounds = knownBounds !== undefined ? knownBounds : computeBounds(this.mask, this.width, this.height);
     // A mask that covers the entire page is the same thing as no mask at all,
     // and the null form is much cheaper for every downstream operation.
     if (this.bounds &&
@@ -282,6 +324,13 @@ export class Selection {
       this.bounds = null;
     }
   }
+}
+
+/** O(1) copy of a Path2D under a translation. */
+function translatedPath(path, dx, dy) {
+  const p = new Path2D();
+  p.addPath(path, new DOMMatrix().translateSelf(dx, dy));
+  return p;
 }
 
 function isFullyOpaque(mask) {

@@ -98,6 +98,8 @@ app.emit('view-changed');
 // `npm start -- --selftest` runs the smoke suite against a scratch document.
 if (new URLSearchParams(location.search).has('dirty')) app.doc.markDirty(true);
 
+if (new URLSearchParams(location.search).has('perf')) import('./perfprobe.js').then(m => m.run(app));
+
 const shotsDir = new URLSearchParams(location.search).get('shots');
 if (shotsDir) {
   import('./screenshots.js').then((m) => m.run(app, shotsDir));

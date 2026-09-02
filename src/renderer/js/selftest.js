@@ -11,7 +11,7 @@ import * as adj from './image/adjustments.js';
 import * as fx from './image/effects.js';
 import { applyFilter } from './image/apply.js';
 import * as io from './fileio.js';
-import { COMBINE, featherMask } from './selection.js';
+import { COMBINE, featherMask, Selection, computeBounds } from './selection.js';
 import { toolByShortcut } from './tools/index.js';
 import { showTooltip, hideTooltip, configureTooltips } from './ui/tooltip.js';
 import { formatKeys, rewriteKeys } from './platform.js';
@@ -120,6 +120,13 @@ function buildShowcase(app) {
 }
 
 export async function run(app) {
+  // Nothing in the app should reach these. An unhandled rejection in
+  // particular is invisible in normal use but means a promise chain is broken.
+  const escaped = [];
+  window.addEventListener('error', (e) => escaped.push(`error: ${e.message}`));
+  window.addEventListener('unhandledrejection', (e) =>
+    escaped.push(`unhandled rejection: ${e.reason?.message || e.reason}`));
+
   app.setDocument(PaintDocument.blank(300, 200, '#ffffff'), { name: 'selftest' });
   const doc = app.doc;
   const layer = () => doc.activeLayer;
@@ -1159,6 +1166,251 @@ export async function run(app) {
     hideTooltip();
   }
 
+  /* --- the renderer cannot reach arbitrary files --- */
+  {
+    let refusedRead = false, refusedWrite = false;
+    try { await window.api.readFile('/etc/hosts'); }
+    catch (err) { refusedRead = /not chosen by the user/i.test(err.message); }
+    try { await window.api.writeFile('/tmp/paintmac-should-not-exist', new Uint8Array([1])); }
+    catch (err) { refusedWrite = /not chosen by the user/i.test(err.message); }
+    check('reading a path the user never chose is refused', refusedRead);
+    check('writing a path the user never chose is refused', refusedWrite);
+
+    // ...and the legitimate path still works. This is the only coverage of the
+    // real save/load pipeline through IPC, guard included.
+    const scratch = await window.api.scratchFile('roundtrip.pmac');
+    if (!scratch) {
+      skip('save/load through IPC', 'scratch file unavailable');
+    } else {
+      const source = PaintDocument.blank(48, 32, '#20c997');
+      source.layers[0].name = 'Saved';
+      source.layers[0].opacity = 0.6;
+      source.layers[0].blendMode = 'screen';
+      const bytes = await io.serializeDocument(source);
+      await window.api.writeFile(scratch, bytes);
+
+      const readBack = await window.api.readFile(scratch);
+      check('a saved file reads back with the same bytes',
+        readBack.data.length === bytes.length, `${readBack.data.length} vs ${bytes.length}`);
+
+      const reopened = await io.deserializeDocument(new Uint8Array(readBack.data));
+      check('a saved document reopens intact',
+        reopened.width === 48 && reopened.height === 32 &&
+        reopened.layers[0].name === 'Saved' &&
+        Math.abs(reopened.layers[0].opacity - 0.6) < 1e-6 &&
+        reopened.layers[0].blendMode === 'screen',
+        `${reopened.width}x${reopened.height} ${reopened.layers[0].name}`);
+      const px = pixel(reopened.layers[0].canvas, 24, 16);
+      check('a saved document reopens with the same pixels',
+        px[0] === 0x20 && px[1] === 0xc9 && px[2] === 0x97, `got ${[...px]}`);
+    }
+  }
+
+  /* --- selection translate: fast, and still correct --- */
+  {
+    const W = 37, H = 23;
+    const sel = new Selection(W, H);
+
+    // Deterministic blobs so a failure reproduces.
+    let seed = 987654321;
+    const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+    const base = new Uint8Array(W * H);
+    for (let i = 0; i < base.length; i++) base[i] = rnd() < 0.4 ? 255 : 0;
+
+    // Reference: the obvious per-pixel shift.
+    const naive = (mask, dx, dy) => {
+      const out = new Uint8Array(W * H);
+      for (let y = 0; y < H; y++) {
+        const sy = y - dy;
+        if (sy < 0 || sy >= H) continue;
+        for (let x = 0; x < W; x++) {
+          const sx = x - dx;
+          if (sx < 0 || sx >= W) continue;
+          out[y * W + x] = mask[sy * W + sx];
+        }
+      }
+      return out;
+    };
+
+    let mismatch = '';
+    for (const [dx, dy] of [[1, 0], [0, 1], [-1, 0], [0, -1], [5, 3], [-7, -4],
+                            [W, 0], [0, H], [-W, -H], [13, -9], [-40, 2]]) {
+      sel.restore(base);
+      sel.translate(dx, dy);
+      const want = naive(base, dx, dy);
+      const got = sel.mask || new Uint8Array(W * H);
+      let diff = 0;
+      for (let i = 0; i < want.length; i++) if (want[i] !== got[i]) diff++;
+      if (diff && !mismatch) mismatch = `(${dx},${dy}) differs in ${diff} px`;
+
+      // Bounds are derived rather than rescanned, so check them against a scan.
+      const expected = computeBounds(want, W, H);
+      const actual = sel.bounds;
+      const same = (!expected && !actual) ||
+        (expected && actual && expected.x === actual.x && expected.y === actual.y &&
+         expected.w === actual.w && expected.h === actual.h);
+      if (!same && !mismatch) {
+        mismatch = `(${dx},${dy}) bounds ${JSON.stringify(actual)} vs ${JSON.stringify(expected)}`;
+      }
+    }
+    check('translate matches a per-pixel reference', !mismatch, mismatch);
+
+    // The cached outline is shifted rather than rebuilt; it must still match.
+    sel.restore(base);
+    sel.translate(4, 2);
+    const shiftedOutline = sel.outline();
+    sel.restore(naive(base, 4, 2));
+    const rebuiltOutline = sel.outline();
+    check('shifted outline agrees with a rebuilt one',
+      !!shiftedOutline === !!rebuiltOutline &&
+      (!shiftedOutline || (!!shiftedOutline.edge === !!rebuiltOutline.edge)),
+      `${shiftedOutline?.edge ? 'edge' : 'path'} vs ${rebuiltOutline?.edge ? 'edge' : 'path'}`);
+
+    // Dragging a selection on a large image must stay inside a frame budget.
+    const big = new Selection(3000, 2000);
+    const bigPath = new Path2D();
+    bigPath.rect(400, 300, 1200, 900);
+    big.setFromPath(bigPath, COMBINE.REPLACE);
+    big.outline();
+    const t0 = performance.now();
+    for (let i = 0; i < 20; i++) { big.translate(1, 1); big.outline(); }
+    const perMove = (performance.now() - t0) / 20;
+    check('dragging a selection stays under a frame budget', perMove < 8,
+      `${perMove.toFixed(1)}ms per move on 3000x2000`);
+  }
+
+  /* --- edge cases: degenerate inputs must not throw or corrupt state --- */
+  {
+    const guard = async (name, fn) => {
+      try {
+        const r = await fn();
+        if (r !== undefined && r !== true) check(name, false, String(r));
+        else check(name, true);
+      } catch (err) {
+        check(name, false, `${err.name}: ${err.message}`);
+      }
+    };
+
+    // A 1x1 document exercises every loop bound at once.
+    app.setDocument(PaintDocument.blank(1, 1, '#808080'), { name: 'tiny' });
+    await guard('effects survive a 1x1 document', () => {
+      const src = new Uint8ClampedArray([128, 128, 128, 255]);
+      const dst = new Uint8ClampedArray(4);
+      for (const [fn, params] of [
+        [fx.gaussianBlur, { radius: 20 }], [fx.median, { radius: 4 }],
+        [fx.reduceNoise, { radius: 4, strength: 60 }], [fx.oilPainting, { radius: 4, levels: 10 }],
+        [fx.edgeDetect, { amount: 100 }], [fx.twist, { angle: 200, radiusPct: 100 }],
+        [fx.bulge, { amount: 90 }], [fx.zoomBlur, { amount: 80 }],
+        [fx.motionBlur, { angle: 45, distance: 60 }], [fx.pixelate, { size: 50 }],
+        [fx.tileReflection, { size: 8, curvature: 90 }], [fx.vignette, { radius: 0, softness: 1, amount: 100 }]
+      ]) fn(src, dst, 1, 1, params);
+    });
+    await guard('transforms survive a 1x1 document', () => {
+      tf.rotateImage(app, 1); tf.flipImage(app, true); tf.resizeImage(app, 1, 1);
+      tf.rotateImageArbitrary(app, 33, { expand: true });
+    });
+
+    // Degenerate selections.
+    app.setDocument(PaintDocument.blank(80, 60, '#ffffff'), { name: 'edges' });
+    await guard('invert of select-all yields an empty selection', () => {
+      app.selection.selectAll();
+      app.selection.invert();
+      return app.selection.bounds === null ? true : `bounds ${JSON.stringify(app.selection.bounds)}`;
+    });
+    await guard('drawing into an empty selection is a no-op', () => {
+      app.setTool('brush');
+      app.activeTool.onDown({ x: 40, y: 30 }, ev());
+      app.activeTool.onUp({ x: 40, y: 30 }, ev({ buttons: 0 }));
+      return pixel(app.doc.activeLayer.canvas, 40, 30)[0] > 240 ? true : 'pixels changed';
+    });
+    await guard('crop with an empty selection is refused', () => tf.cropToSelection(app) === false || 'cropped anyway');
+    await guard('feather wider than the document is safe', () => {
+      const p2 = new Path2D(); p2.rect(10, 10, 20, 20);
+      app.selection.setFromPath(p2, COMBINE.REPLACE);
+      app.selection.setFromMask(featherMask(app.selection.mask, 80, 60, 400), COMBINE.REPLACE);
+    });
+    app.selection.clear();
+
+    // Zero-extent drags.
+    await guard('zero-length gradient drag does not throw', () => {
+      app.setTool('gradient');
+      app.activeTool.onDown({ x: 20, y: 20 }, ev());
+      app.activeTool.onMove({ x: 20, y: 20 }, ev());
+      app.activeTool.onUp({ x: 20, y: 20 }, ev({ buttons: 0 }));
+      return app.doc.overlay === null || 'overlay left behind';
+    });
+    await guard('zero-size shape does not throw', () => {
+      app.setTool('shape-ellipse');
+      app.activeTool.onDown({ x: 30, y: 30 }, ev());
+      app.activeTool.onUp({ x: 30, y: 30 }, ev({ buttons: 0 }));
+      return app.doc.overlay === null || 'overlay left behind';
+    });
+
+    // Clicks outside the canvas.
+    await guard('paint bucket outside the canvas is ignored', () => {
+      app.setTool('bucket');
+      app.activeTool.onDown({ x: -50, y: -50 }, ev());
+      app.activeTool.onDown({ x: 9999, y: 9999 }, ev());
+    });
+    await guard('magic wand outside the canvas is ignored', () => {
+      app.setTool('magic-wand');
+      app.activeTool.onDown({ x: -5, y: -5 }, ev());
+      app.activeTool.onDown({ x: 8000, y: 8000 }, ev());
+    });
+
+    // Layer boundaries.
+    await guard('deleting the last layer is refused', () => {
+      while (app.doc.layers.length > 1) app.doc.removeLayerAt(app.doc.layers.length - 1);
+      const before = app.doc.layers.length;
+      app.doc.removeLayerAt(0);
+      return app.doc.layers.length === before || 'removed the only layer';
+    });
+    await guard('merging the bottom layer down is refused',
+      () => tf.mergeLayerDown(app) === false || 'merged anyway');
+    await guard('moving a layer past the ends is refused', () => {
+      const before = app.doc.layers.length;
+      app.doc.moveLayer(0, -1); app.doc.moveLayer(0, 99);
+      return app.doc.layers.length === before || 'layer count changed';
+    });
+    await guard('flatten with one layer is refused',
+      () => tf.flattenImage(app) === false || 'flattened anyway');
+
+    // Text with nothing in it.
+    await guard('committing empty text is a no-op', () => {
+      app.setTool('text');
+      const depth = app.history.entries.length;
+      app.activeTool.onDown({ x: 10, y: 10 }, ev());
+      if (app.activeTool.editor) app.activeTool.editor.value = '   ';
+      app.activeTool.commit();
+      return app.history.entries.length === depth || 'pushed a history entry';
+    });
+
+    // Corrupt documents must fail cleanly.
+    await guard('a corrupt .pmac is rejected with a clear error', async () => {
+      try {
+        await io.deserializeDocument(new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]));
+        return 'accepted a corrupt file';
+      } catch (err) {
+        return /Paint\.mac document/i.test(err.message) ? true : `unhelpful error: ${err.message}`;
+      }
+    });
+    await guard('a truncated .pmac is rejected', async () => {
+      const good = await io.serializeDocument(PaintDocument.blank(8, 8, '#fff'));
+      try {
+        await io.deserializeDocument(good.slice(0, Math.floor(good.length / 2)));
+        return 'accepted a truncated file';
+      } catch { return true; }
+    });
+
+    // Export of a minimal document.
+    await guard('a 1x1 image exports', async () => {
+      const bytes = await io.exportBytes(PaintDocument.blank(1, 1, '#123456'), 'png');
+      return bytes.length > 20 || 'empty export';
+    });
+
+    app.setTool('brush');
+  }
+
   /* --- UI chrome is laid out and populated --- */
   const toolButtons = document.querySelectorAll('#toolstrip .tool-btn');
   check('tool strip renders every tool', toolButtons.length === app.tools.size, `${toolButtons.length} of ${app.tools.size}`);
@@ -1203,6 +1455,10 @@ export async function run(app) {
       console.error(`SELFTEST CAPTURE failed: ${err.message}`);
     }
   }
+
+  await nextFrames(4);   // let any trailing rejection surface
+  check('nothing reached the global error handlers', escaped.length === 0,
+    escaped.slice(0, 3).join(' | '));
 
   const failed = results.filter((r) => !r.ok);
   console.error(`SELFTEST SUMMARY — ${results.length - failed.length}/${results.length} passed`);

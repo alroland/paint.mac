@@ -31,6 +31,22 @@ let forceClose = false;
 let isQuitting = false;
 /** Pending "did the renderer hear us?" watchdog; see requestRendererClose(). */
 let closeAckTimer = null;
+/**
+ * Paths the user has explicitly chosen — through a native dialog, or by opening
+ * a file from Finder. The renderer may read and write these and nothing else,
+ * so a flaw in renderer code cannot reach arbitrary files. Every path the
+ * renderer uses already originates here, so nothing legitimate is lost.
+ */
+const userChosenPaths = new Set();
+function rememberUserPath(filePath) {
+  if (filePath) userChosenPaths.add(path.resolve(filePath));
+  return filePath;
+}
+function assertUserChose(filePath) {
+  if (typeof filePath !== 'string' || !userChosenPaths.has(path.resolve(filePath))) {
+    throw new Error('Refused: that path was not chosen by the user.');
+  }
+}
 const CLOSE_ACK_TIMEOUT = 3000;
 
 const IMAGE_FILTERS = [
@@ -70,6 +86,7 @@ function createWindow() {
   if (isDev && process.argv.includes('--assume-discard')) devFlags.discard = '1';
   if (isDev && process.argv.includes('--dirty-on-start')) devFlags.dirty = '1';
   if (isDev && process.argv.includes('--ignore-close')) devFlags.ignoreClose = '1';
+  if (isDev && process.argv.includes('--perf')) devFlags.perf = '1';
   const shotsArg = process.argv.find((a) => a.startsWith('--screenshots='));
   if (isDev && shotsArg) devFlags.shots = shotsArg.slice('--screenshots='.length);
   const captureArg = process.argv.find((a) => a.startsWith('--capture='));
@@ -178,6 +195,7 @@ function flushPendingOpens() {
 
 app.on('open-file', (event, filePath) => {
   event.preventDefault();
+  rememberUserPath(filePath);
   if (mainWindow && !mainWindow.webContents.isLoading()) {
     mainWindow.webContents.send('menu:command', { id: 'file.openPath', path: filePath });
   } else {
@@ -243,7 +261,7 @@ ipcMain.handle('dialog:open', async (_e, opts = {}) => {
     filters: opts.filters || IMAGE_FILTERS
   });
   if (res.canceled || !res.filePaths.length) return null;
-  return res.filePaths[0];
+  return rememberUserPath(res.filePaths[0]);
 });
 
 ipcMain.handle('dialog:save', async (_e, opts = {}) => {
@@ -252,7 +270,7 @@ ipcMain.handle('dialog:save', async (_e, opts = {}) => {
     filters: opts.filters || IMAGE_FILTERS
   });
   if (res.canceled || !res.filePath) return null;
-  return res.filePath;
+  return rememberUserPath(res.filePath);
 });
 
 ipcMain.handle('dialog:message', async (_e, opts = {}) => {
@@ -268,11 +286,13 @@ ipcMain.handle('dialog:message', async (_e, opts = {}) => {
 });
 
 ipcMain.handle('fs:read', async (_e, filePath) => {
+  assertUserChose(filePath);
   const buf = await fs.readFile(filePath);
   return { path: filePath, name: path.basename(filePath), ext: path.extname(filePath).toLowerCase(), data: buf };
 });
 
 ipcMain.handle('fs:write', async (_e, filePath, data) => {
+  assertUserChose(filePath);
   await fs.writeFile(filePath, Buffer.from(data));
   return true;
 });
@@ -311,6 +331,15 @@ ipcMain.on('selftest:done', (_e, { passed, total, failures = [], skipped = [] })
   for (const f of failures) console.error(`self-test FAIL: ${f}`);
   console.log(`self-test: ${passed}/${total} passed`);
   app.exit(passed === total ? 0 : 1);
+});
+
+// Dev-only: hands the self-test a writable temp path, vouched the same way a
+// dialog result would be, so the real save/load path can be exercised without
+// a native dialog.
+ipcMain.handle('dev:scratch-file', (_e, name) => {
+  if (!isDev) return null;
+  const safe = String(name || 'scratch').replace(/[^\w.-]/g, '');
+  return rememberUserPath(path.join(app.getPath('temp'), `paintmac-selftest-${safe}`));
 });
 
 // Dev-only: the clipboard API refuses to run unless the document is focused,

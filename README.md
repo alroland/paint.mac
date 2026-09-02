@@ -184,6 +184,7 @@ built from macOS or Linux; building on Windows needs nothing extra. `.rpm` requi
 ```bash
 npm run icon             # regenerate the app icon from scripts/icon/render.html
 npm run screenshots      # regenerate docs/screenshots from a scripted document
+npm run perf             # time the interactions that have to stay under a frame budget
 ```
 
 ---
@@ -285,10 +286,12 @@ npm test                 # the full suite
 2. **Shutdown** — the app is launched four times and must actually exit each time: clean document,
    window-closed-first, after answering the unsaved-changes prompt, and with a renderer that never
    responds.
-3. **Behaviour** — 181 assertions driving the real tools and document model: strokes and undo,
-   selection clipping, feathered masks, the magic wand (compared against a brute-force reference fill,
-   with a worst-case timing budget), layer operations, every effect, transforms, the `.pmac` round
-   trip, export, history navigation, marching-ants render cost, tooltips and the UI layout.
+3. **Behaviour** — 217 assertions driving the real tools and document model: strokes and undo,
+   selection clipping, feathered masks, the magic wand and selection translate (both compared against
+   brute-force reference implementations, with worst-case timing budgets), layer operations, every
+   effect, transforms, the `.pmac` round trip through real IPC, export, history navigation,
+   clipboard interchange, marching-ants render cost, tooltips, degenerate inputs, and the UI layout.
+   It also sweeps every command, and fails if anything reaches the global error handlers.
 
 The same suite runs inside the packaged app, where assets live in an asar archive:
 
@@ -304,7 +307,8 @@ build/            Generated app icon (icon.icns / icon.png)
 docs/             Screenshots for this README
 scripts/          Icon and screenshot generators, static wiring and shutdown checks
 src/main/         Electron main process: window, native menus, file and clipboard IPC
-src/preload/      Narrow contextBridge surface — the renderer never touches fs
+src/preload/      Narrow contextBridge surface; the renderer can only read and
+                  write paths the user picked in a native dialog
 src/renderer/
   js/document.js    Layer stack + dirty-rect composite cache
   js/selection.js   8-bit coverage masks, boolean combining, magic wand, feather

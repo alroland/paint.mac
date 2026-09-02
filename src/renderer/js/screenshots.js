@@ -4,7 +4,6 @@
 // change instead of going stale the moment anything moves.
 
 import { PaintDocument, Layer } from './document.js';
-import { COMBINE } from './selection.js';
 import { showTooltip, hideTooltip } from './ui/tooltip.js';
 
 const nextFrames = (n) => new Promise((resolve) => {

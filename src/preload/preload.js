@@ -17,6 +17,7 @@ contextBridge.exposeInMainWorld('api', {
 
   capturePage: (path) => ipcRenderer.invoke('dev:capture-page', path),
   focusWindow: () => ipcRenderer.invoke('dev:focus-window'),
+  scratchFile: (name) => ipcRenderer.invoke('dev:scratch-file', name),
   selfTestDone: (result) => ipcRenderer.send('selftest:done', result),
 
   platform: process.platform,
