@@ -21,6 +21,7 @@ contextBridge.exposeInMainWorld('api', {
   selfTestDone: (result) => ipcRenderer.send('selftest:done', result),
 
   platform: process.platform,
+  clipboardImageFiles: () => ipcRenderer.invoke('clipboard:image-files'),
   getVersion: () => ipcRenderer.invoke('app:get-version'),
   openExternal: (url) => ipcRenderer.invoke('app:open-external', url),
 

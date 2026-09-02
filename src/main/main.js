@@ -1,9 +1,10 @@
 'use strict';
 
-const { app, BrowserWindow, ipcMain, dialog, nativeTheme, shell, nativeImage, session } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, nativeTheme, shell, nativeImage, session, clipboard } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs/promises');
 const fsSync = require('node:fs');
+const { fileURLToPath } = require('node:url');
 const { buildMenu } = require('./menu');
 
 const isDev = process.argv.includes('--dev');
@@ -301,6 +302,41 @@ ipcMain.on('app:set-title', (_e, { title, edited }) => {
   if (!mainWindow) return;
   mainWindow.setTitle(title);
   mainWindow.setDocumentEdited(!!edited);
+});
+
+const CLIPBOARD_IMAGE_EXTS = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp', '.tif', '.tiff']);
+
+/**
+ * Image files sitting on the clipboard as file references — what you get from
+ * copying a screenshot in Finder. The renderer's navigator.clipboard reports
+ * such an item with no types at all, so this is the only way to see them.
+ * Copying a file is an explicit user choice, so the paths are vouched for.
+ */
+ipcMain.handle('clipboard:image-files', async () => {
+  try {
+    // clipboard.read() can sit there forever rather than rejecting, which would
+    // hang paste with no feedback. Bound it and treat a stall as "no files".
+    const items = await Promise.race([
+      clipboard.read(),
+      new Promise((resolve) => setTimeout(() => resolve([]), 2000))
+    ]);
+    for (const item of items) {
+      if (!item.types?.includes('text/uri-list')) continue;
+      const text = await (await item.getType('text/uri-list')).text();
+      const paths = text.split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter((line) => line && !line.startsWith('#') && line.startsWith('file://'))
+        .map((url) => { try { return fileURLToPath(url); } catch { return null; } })
+        .filter((p) => p && CLIPBOARD_IMAGE_EXTS.has(path.extname(p).toLowerCase()));
+      if (paths.length) {
+        paths.forEach(rememberUserPath);
+        return paths;
+      }
+    }
+  } catch {
+    // A clipboard we cannot parse is simply one with no files on it.
+  }
+  return [];
 });
 
 ipcMain.handle('app:get-version', () => app.getVersion());

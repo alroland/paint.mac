@@ -106,5 +106,15 @@ if (shotsDir) {
 }
 
 if (new URLSearchParams(location.search).has('selftest')) {
-  import('./selftest.js').then((m) => m.run(app));
+  import('./selftest.js')
+    .then((m) => m.run(app))
+    .catch((err) => {
+      // Without this, a throw inside the suite just leaves the run hanging with
+      // no output at all, which says far less than a red run.
+      console.error(`SELFTEST CRASHED: ${err && err.stack ? err.stack : err}`);
+      window.api.selfTestDone?.({
+        passed: 0, total: 1,
+        failures: [`suite crashed: ${err && err.message ? err.message : err}`]
+      });
+    });
 }

@@ -286,7 +286,7 @@ npm test                 # the full suite
 2. **Shutdown** — the app is launched four times and must actually exit each time: clean document,
    window-closed-first, after answering the unsaved-changes prompt, and with a renderer that never
    responds.
-3. **Behaviour** — 217 assertions driving the real tools and document model: strokes and undo,
+3. **Behaviour** — 231 assertions driving the real tools and document model: strokes and undo,
    selection clipping, feathered masks, the magic wand and selection translate (both compared against
    brute-force reference implementations, with worst-case timing budgets), layer operations, every
    effect, transforms, the `.pmac` round trip through real IPC, export, history navigation,

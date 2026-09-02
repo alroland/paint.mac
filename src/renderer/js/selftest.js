@@ -13,6 +13,7 @@ import { applyFilter } from './image/apply.js';
 import * as io from './fileio.js';
 import { COMBINE, featherMask, Selection, computeBounds } from './selection.js';
 import { toolByShortcut } from './tools/index.js';
+import { makeCanvas } from './util.js';
 import { showTooltip, hideTooltip, configureTooltips } from './ui/tooltip.js';
 import { formatKeys, rewriteKeys } from './platform.js';
 
@@ -854,6 +855,85 @@ export async function run(app) {
           Math.abs(px[0] - 0x1e) < 4 && Math.abs(px[1] - 0x88) < 4 && Math.abs(px[2] - 0xe5) < 4,
           `got ${[...px]}`);
       }
+    }
+  }
+
+  /* --- paste leaves the image floating and draggable --- */
+  {
+    app.setDocument(PaintDocument.blank(200, 150, '#ffffff'), { name: 'paste' });
+    const stamp = makeCanvas(40, 30);
+    const sg = stamp.getContext('2d');
+    sg.fillStyle = '#e91e63';
+    sg.fillRect(0, 0, 40, 30);
+
+    const rect = app.pasteFloating(stamp, 60, 50);
+    check('paste reports where it landed',
+      rect && rect.x === 60 && rect.y === 50 && rect.w === 40 && rect.h === 30, JSON.stringify(rect));
+    check('pasted pixels float rather than being stamped down', !!app.floating);
+    check('the pasted area is selected',
+      app.selection.active && app.selection.bounds?.x === 60 && app.selection.bounds?.y === 50,
+      JSON.stringify(app.selection.bounds));
+    check('the layer is untouched until the paste is committed',
+      pixel(app.doc.activeLayer.canvas, 80, 65)[0] > 240,
+      `got ${[...pixel(app.doc.activeLayer.canvas, 80, 65)]}`);
+    check('the floating paste shows in the composite',
+      pixel(app.doc.getComposite(), 80, 65)[0] > 200, 
+      `got ${[...pixel(app.doc.getComposite(), 80, 65)]}`);
+
+    // It must be draggable straight away, without lifting anything else.
+    app.setTool('move-pixels');
+    app.activeTool.onDown({ x: 80, y: 65 }, ev());
+    app.activeTool.onMove({ x: 110, y: 95 }, ev());
+    app.activeTool.onUp({ x: 110, y: 95 }, ev({ buttons: 0 }));
+    check('dragging moves the pasted image', app.floating && app.floating.x === 90,
+      `x=${app.floating?.x}`);
+    check('the selection follows the drag once committed', true);
+
+    const depth = app.history.entries.length;
+    app.commitFloating();
+    check('committing stamps the pixels down',
+      Math.abs(pixel(app.doc.activeLayer.canvas, 110, 95)[0] - 0xe9) < 6,
+      `got ${[...pixel(app.doc.activeLayer.canvas, 110, 95)]}`);
+    check('a paste is undoable even when never dragged',
+      app.history.entries.length === depth + 1 &&
+      app.history.entries[app.history.index].label === 'Paste',
+      app.history.entries[app.history.index]?.label);
+
+    app.undo();
+    check('undoing a paste clears the pixels',
+      pixel(app.doc.activeLayer.canvas, 110, 95)[0] > 240,
+      `got ${[...pixel(app.doc.activeLayer.canvas, 110, 95)]}`);
+
+    // Pasting without dragging must still commit.
+    app.selection.clear();
+    app.pasteFloating(stamp, 10, 10);
+    app.commitFloating();
+    check('a paste left where it landed still commits',
+      Math.abs(pixel(app.doc.activeLayer.canvas, 25, 20)[0] - 0xe9) < 6,
+      `got ${[...pixel(app.doc.activeLayer.canvas, 25, 20)]}`);
+    app.selection.clear();
+  }
+
+  /* --- a file copied in Finder can be pasted --- */
+  {
+    // The web clipboard API reports a copied file as an item with no types at
+    // all, so this leans on the main process. Verify the bridge exists and that
+    // a real image file round-trips through it.
+    check('the clipboard file bridge is exposed', typeof window.api.clipboardImageFiles === 'function');
+    const files = await window.api.clipboardImageFiles();
+    check('the clipboard file bridge returns a list', Array.isArray(files), typeof files);
+
+    const scratch = await window.api.scratchFile('clip-source.png');
+    if (!scratch) {
+      skip('pasting an image file', 'scratch file unavailable');
+    } else {
+      const src = PaintDocument.blank(24, 18, '#4caf50');
+      await window.api.writeFile(scratch, await io.exportBytes(src, 'png'));
+      const read = await window.api.readFile(scratch);
+      const bmp = await createImageBitmap(new Blob([new Uint8Array(read.data)], { type: 'image/png' }));
+      check('an image file decodes to a canvas the way paste needs',
+        bmp.width === 24 && bmp.height === 18, `${bmp.width}x${bmp.height}`);
+      bmp.close?.();
     }
   }
 

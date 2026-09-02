@@ -4,8 +4,9 @@
 import { PaintDocument, Layer, BLEND_MODES } from './document.js';
 import { captureDocState, docStateEdit, selectionEdit, regionEdit, metaEdit } from './history.js';
 import { extractSelection, eraseSelection } from './tools/select.js';
+import { COMBINE } from './selection.js';
 import { paintOp } from './paint.js';
-import { makeCanvas, normalizeRect } from './util.js';
+import { makeCanvas, normalizeRect, clamp } from './util.js';
 import { toCss } from './color.js';
 import * as adj from './image/adjustments.js';
 import * as fx from './image/effects.js';
@@ -116,19 +117,35 @@ export function registerCommands(app) {
       const canvas = await io.readClipboardCanvas();
       if (!canvas) return app.setStatus('The clipboard has no image.');
       app.commitFloating();
-      const layer = doc().activeLayer;
-      // Paste lands at the top-left of the selection, or of the canvas.
-      const at = sel().bounds || { x: 0, y: 0 };
-      const r = normalizeRect({ x: at.x, y: at.y, w: canvas.width, h: canvas.height }, doc().width, doc().height);
-      if (!r) return app.setStatus('The pasted image lands outside the canvas.');
-      const before = makeCanvas(r.w, r.h);
-      before.getContext('2d').drawImage(layer.canvas, r.x, r.y, r.w, r.h, 0, 0, r.w, r.h);
-      layer.ctx.drawImage(canvas, at.x, at.y);
-      layer.touch();
-      doc().invalidate(r);
-      app.pushHistory(regionEdit(doc(), layer, r, before, 'Paste'));
+      if (!doc().activeLayer) return;
+
+      // A screenshot is routinely bigger than the document it is going into.
+      // Silently cropping it is the wrong default, so ask.
+      if (canvas.width > doc().width || canvas.height > doc().height) {
+        const choice = await showDialog({
+          title: 'Paste',
+          fields: [
+            { type: 'note', text: `The clipboard image is ${canvas.width} × ${canvas.height}, larger than this ${doc().width} × ${doc().height} canvas.` },
+            { type: 'select', key: 'fit', label: 'Canvas', value: 'expand', items: [
+              ['expand', 'Expand the canvas to fit'],
+              ['keep', 'Keep the canvas size and crop']
+            ] }
+          ],
+          okLabel: 'Paste'
+        });
+        if (!choice) return;
+        if (choice.fit === 'expand') {
+          tf.resizeCanvas(app,
+            Math.max(doc().width, canvas.width),
+            Math.max(doc().height, canvas.height), 'top-left');
+          app.view.fitToWindow();
+        }
+      }
+
+      const at = pastePosition(app, canvas.width, canvas.height);
+      app.pasteFloating(canvas, at.x, at.y);
       app.setTool('move-pixels');
-      app.view.render();
+      app.setStatus('Pasted — drag to position it, then click away to drop it.');
     },
 
     'edit.pasteLayer': async () => {
@@ -139,7 +156,13 @@ export function registerCommands(app) {
       const layer = new Layer(doc().width, doc().height, 'Pasted Layer');
       layer.ctx.drawImage(canvas, 0, 0);
       doc().addLayer(layer);
+      // Leave the pasted area selected so it can be moved straight away.
+      const marquee = new Path2D();
+      marquee.rect(0, 0, Math.min(canvas.width, doc().width), Math.min(canvas.height, doc().height));
+      sel().setFromPath(marquee, COMBINE.REPLACE);
+      doc().emit('selection-changed');
       app.pushHistory(docStateEdit(doc(), sel(), before, 'Paste Into New Layer'));
+      app.setTool('move-pixels');
       app.view.render();
     },
 
@@ -795,6 +818,22 @@ function aboutPanel(version) {
       wrap.append(icon, body);
       return wrap;
     }
+  };
+}
+
+/**
+ * Where a paste lands: the top-left of the selection if there is one, otherwise
+ * centred on whatever part of the canvas is currently on screen — pasting to
+ * (0, 0) puts the image somewhere the user may not even be looking.
+ */
+function pastePosition(app, w, h) {
+  const bounds = app.selection.bounds;
+  if (app.selection.active && bounds) return { x: bounds.x, y: bounds.y };
+  const view = app.view;
+  const centre = view.toDoc(view.viewWidth / 2, view.viewHeight / 2);
+  return {
+    x: clamp(Math.round(centre.x - w / 2), 0, Math.max(0, app.doc.width - w)),
+    y: clamp(Math.round(centre.y - h / 2), 0, Math.max(0, app.doc.height - h))
   };
 }
 

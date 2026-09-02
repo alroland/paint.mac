@@ -3,7 +3,7 @@
 
 import { Emitter, makeCanvas, unionRect, clamp } from './util.js';
 import { PaintDocument, Layer } from './document.js';
-import { Selection } from './selection.js';
+import { Selection, COMBINE } from './selection.js';
 import { History, captureDocState, docStateEdit } from './history.js';
 import { View, Rulers } from './view.js';
 import { ALL_TOOLS, toolByShortcut } from './tools/index.js';
@@ -177,6 +177,37 @@ export class App extends Emitter {
     this.view.render();
   }
 
+  /**
+   * Drops an image in as a floating selection: marquee around it, and
+   * immediately draggable with the move tool. Committing happens when the user
+   * does anything else, exactly as it does after moving selected pixels.
+   */
+  pasteFloating(canvas, x, y) {
+    this.commitFloating();
+    const layer = this.doc.activeLayer;
+    if (!layer) return null;
+
+    const px = Math.round(x), py = Math.round(y);
+    this._floatBefore = captureDocState(this.doc, this.selection);
+
+    const marquee = new Path2D();
+    marquee.rect(px, py, canvas.width, canvas.height);
+    this.selection.setFromPath(marquee, COMBINE.REPLACE);
+
+    this.floating = {
+      canvas, x: px, y: py, startX: px, startY: py, layer,
+      // Pasted pixels are new, so they must be recorded even if never dragged.
+      label: 'Paste', commitAlways: true
+    };
+    this.doc.overlay = {
+      canvas, x: px, y: py, alpha: 1, op: 'source-over', aboveIndex: this.doc.activeIndex
+    };
+    this.doc.invalidate({ x: px, y: py, w: canvas.width, h: canvas.height });
+    this.doc.emit('selection-changed');
+    this.view.render();
+    return { x: px, y: py, w: canvas.width, h: canvas.height };
+  }
+
   moveFloating(x, y) {
     const f = this.floating;
     if (!f) return;
@@ -202,8 +233,8 @@ export class App extends Emitter {
     this.doc.invalidateAll();
     this.doc.emit('selection-changed');
 
-    if (dx || dy) {
-      this.pushHistory(docStateEdit(this.doc, this.selection, this._floatBefore, 'Move Selected Pixels'));
+    if (dx || dy || f.commitAlways) {
+      this.pushHistory(docStateEdit(this.doc, this.selection, this._floatBefore, f.label || 'Move Selected Pixels'));
     } else if (this._floatBefore) {
       // Lifted then dropped in place: nothing changed, so drop the snapshot.
       this._floatBefore = null;

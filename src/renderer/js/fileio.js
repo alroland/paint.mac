@@ -168,26 +168,58 @@ export async function copyCanvasToClipboard(canvas) {
 
 /** Returns a canvas holding the clipboard image, or null when there isn't one. */
 export async function readClipboardCanvas() {
-  let items;
+  let items = null;
+  let webError = null;
   try {
     items = await withTimeout(navigator.clipboard.read(), 'Paste');
   } catch (err) {
-    // Raised when the window isn't focused or the user denied clipboard access.
-    if (err && (err.name === 'NotAllowedError' || err.name === 'SecurityError')) {
-      throw new Error('Clipboard access was refused — the window must be focused. Click the canvas and try again.');
-    }
-    throw err;
+    // Remember it, but keep going: a file on the clipboard is readable even
+    // when the web clipboard API itself refuses us.
+    webError = err;
   }
 
-  for (const item of items) {
+  for (const item of items || []) {
     const type = item.types.find((t) => t.startsWith('image/'));
     if (!type) continue;
-    const blob = await item.getType(type);
-    const bitmap = await createImageBitmap(blob);
-    const c = makeCanvas(bitmap.width, bitmap.height);
-    c.getContext('2d').drawImage(bitmap, 0, 0);
-    bitmap.close?.();
-    return c;
+    try {
+      return await canvasFromBlob(await item.getType(type));
+    } catch {
+      // Undecodable payload; fall through to the other candidates.
+    }
+  }
+
+  // A file copied in Finder — a screenshot off the Desktop, say — reaches the
+  // clipboard as a file reference, which the web API surfaces as an item with
+  // no types whatsoever. Only the main process can see those.
+  let files = [];
+  try {
+    files = (await withTimeout(window.api.clipboardImageFiles?.() ?? [], 'Paste')) || [];
+  } catch {
+    files = [];
+  }
+  for (const filePath of files) {
+    try {
+      const file = await window.api.readFile(filePath);
+      const bytes = new Uint8Array(file.data);
+      return await canvasFromBlob(new Blob([bytes], { type: mimeForExtension(file.ext) }));
+    } catch {
+      // Unreadable or not an image after all; try the next one.
+    }
+  }
+
+  if (webError) {
+    if (webError.name === 'NotAllowedError' || webError.name === 'SecurityError') {
+      throw new Error('Clipboard access was refused — the window must be focused. Click the canvas and try again.');
+    }
+    throw webError;
   }
   return null;
+}
+
+async function canvasFromBlob(blob) {
+  const bitmap = await createImageBitmap(blob);
+  const c = makeCanvas(bitmap.width, bitmap.height);
+  c.getContext('2d').drawImage(bitmap, 0, 0);
+  bitmap.close?.();
+  return c;
 }
