@@ -719,6 +719,9 @@ export function registerCommands(app) {
     }
   };
 
+  // Exposed so the self-test can sweep every command; see selftest.js.
+  app.commandIds = Object.keys(commands);
+
   window.api.onMenuCommand((payload) => app.run(payload.id, payload));
 
   // Buttons in the chrome carry a data-cmd attribute rather than their own handlers.

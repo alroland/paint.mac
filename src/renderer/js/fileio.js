@@ -134,21 +134,40 @@ export async function exportBytes(doc, ext, quality = 0.92) {
 
 /* ---------- clipboard ---------- */
 
+// Electron 44's main-process clipboard module dropped readImage/writeImage and
+// moved to the async ClipboardItem API, so image interchange goes through the
+// renderer's navigator.clipboard instead. That is also the better fit: it deals
+// in blobs natively and interoperates with other apps without a round trip
+// through IPC.
+
 export async function copyCanvasToClipboard(canvas) {
-  const dataURL = canvas.toDataURL('image/png');
-  await window.api.writeClipboardImage(dataURL);
+  const blob = await canvasToBlob(canvas, 'image/png');
+  if (!blob) throw new Error('Could not encode the image.');
+  await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
 }
 
+/** Returns a canvas holding the clipboard image, or null when there isn't one. */
 export async function readClipboardCanvas() {
-  const dataURL = await window.api.readClipboardImage();
-  if (!dataURL) return null;
-  const img = new Image();
-  await new Promise((resolve, reject) => {
-    img.onload = resolve;
-    img.onerror = reject;
-    img.src = dataURL;
-  });
-  const c = makeCanvas(img.width, img.height);
-  c.getContext('2d').drawImage(img, 0, 0);
-  return c;
+  let items;
+  try {
+    items = await navigator.clipboard.read();
+  } catch (err) {
+    // Raised when the window isn't focused or the user denied clipboard access.
+    if (err && (err.name === 'NotAllowedError' || err.name === 'SecurityError')) {
+      throw new Error('macOS blocked clipboard access — click the canvas to focus the window, then try again.');
+    }
+    throw err;
+  }
+
+  for (const item of items) {
+    const type = item.types.find((t) => t.startsWith('image/'));
+    if (!type) continue;
+    const blob = await item.getType(type);
+    const bitmap = await createImageBitmap(blob);
+    const c = makeCanvas(bitmap.width, bitmap.height);
+    c.getContext('2d').drawImage(bitmap, 0, 0);
+    bitmap.close?.();
+    return c;
+  }
+  return null;
 }

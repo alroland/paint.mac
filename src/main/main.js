@@ -1,6 +1,6 @@
 'use strict';
 
-const { app, BrowserWindow, ipcMain, dialog, nativeTheme, shell, clipboard, nativeImage } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, nativeTheme, shell, nativeImage, session } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs/promises');
 const fsSync = require('node:fs');
@@ -205,6 +205,18 @@ function scheduleQuitProbe() {
 
 app.whenReady().then(() => {
   nativeTheme.themeSource = 'dark';
+
+  // Cut and paste need clipboard access. Grant only that, only to our own
+  // pages, and refuse everything else outright.
+  const CLIPBOARD_PERMISSIONS = new Set(['clipboard-read', 'clipboard-sanitized-write']);
+  const isOwnPage = (url) => url.startsWith('file://');
+  session.defaultSession.setPermissionRequestHandler((contents, permission, callback) => {
+    callback(CLIPBOARD_PERMISSIONS.has(permission) && isOwnPage(contents.getURL()));
+  });
+  session.defaultSession.setPermissionCheckHandler((contents, permission) => {
+    return CLIPBOARD_PERMISSIONS.has(permission) && isOwnPage(contents?.getURL() ?? '');
+  });
+
   applyBranding();
   createWindow();
   scheduleQuitProbe();
@@ -291,23 +303,21 @@ ipcMain.on('app:set-represented-file', (_e, filePath) => {
   if (mainWindow) mainWindow.setRepresentedFilename(filePath || '');
 });
 
-/* Clipboard goes through the main process: Electron's native clipboard is far
-   more reliable on macOS than the renderer's async Clipboard API, and it
-   interoperates properly with other apps. */
-ipcMain.handle('clipboard:write-image', (_e, dataURL) => {
-  clipboard.writeImage(nativeImage.createFromDataURL(dataURL));
-  return true;
-});
-
-ipcMain.handle('clipboard:read-image', () => {
-  const img = clipboard.readImage();
-  return img.isEmpty() ? null : img.toDataURL();
-});
-
 // The self-test reports back so `npm test` can exit with a meaningful code.
 ipcMain.on('selftest:done', (_e, { passed, total }) => {
   console.log(`self-test: ${passed}/${total} passed`);
   app.exit(passed === total ? 0 : 1);
+});
+
+// Dev-only: the clipboard API refuses to run unless the document is focused,
+// which an unattended test window is not.
+ipcMain.handle('dev:focus-window', () => {
+  if (!isDev || !mainWindow) return false;
+  app.focus({ steal: true });
+  mainWindow.show();
+  mainWindow.focus();
+  mainWindow.webContents.focus();
+  return true;
 });
 
 // Dev-only: lets the self-test save a screenshot of the rendered window.

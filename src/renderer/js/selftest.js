@@ -800,6 +800,129 @@ export async function run(app) {
   const rewound = pixel(app.doc.layers[0].canvas, 25, 25);
   check('full rewind clears the shape', rewound[0] > 240, `got ${[...rewound]}`);
 
+  /* --- clipboard round trip through the real browser API --- */
+  {
+    app.setDocument(PaintDocument.blank(60, 40, '#ffffff'), { name: 'clipboard' });
+    const g = app.doc.activeLayer.ctx;
+    g.fillStyle = '#1e88e5';
+    g.fillRect(10, 10, 20, 20);
+    app.doc.activeLayer.touch();
+    app.doc.invalidateAll();
+
+    await window.api.focusWindow?.();
+    await nextFrames(3);
+
+    let copied = false, copyErr = '';
+    try {
+      await io.copyCanvasToClipboard(app.doc.flatten());
+      copied = true;
+    } catch (err) { copyErr = `${err.name}: ${err.message}`; }
+    check('copy puts an image on the clipboard', copied, copyErr);
+
+    if (copied) {
+      let pasted = null, pasteErr = '';
+      try {
+        pasted = await io.readClipboardCanvas();
+      } catch (err) { pasteErr = `${err.name}: ${err.message}`; }
+      check('paste reads the image back', !!pasted, pasteErr);
+      if (pasted) {
+        check('clipboard round trip keeps dimensions',
+          pasted.width === 60 && pasted.height === 40, `${pasted.width}x${pasted.height}`);
+        const px = pixel(pasted, 20, 20);
+        check('clipboard round trip keeps pixels',
+          Math.abs(px[0] - 0x1e) < 4 && Math.abs(px[1] - 0x88) < 4 && Math.abs(px[2] - 0xe5) < 4,
+          `got ${[...px]}`);
+      }
+    }
+  }
+
+  /* --- every command runs without throwing --- */
+  // A broken command used to surface only when a user hit it. This sweeps all
+  // of them; it is how the Electron 44 clipboard removal would have been caught.
+  {
+    app.setDocument(PaintDocument.blank(160, 120, '#ffffff'), { name: 'sweep' });
+    const marquee = new Path2D();
+    marquee.rect(20, 20, 60, 60);
+    app.selection.setFromPath(marquee, COMBINE.REPLACE);   // give selection-dependent commands something to chew on
+
+    // Commands driven by native dialogs block the main process and cannot be
+    // dismissed from here; help.website would launch a browser.
+    const skip = new Set([
+      'file.open', 'file.openPath', 'file.save', 'file.saveAs', 'file.export',
+      'layer.import', 'help.website'
+    ]);
+
+    const failures = [];
+    const originalStatus = app.setStatus.bind(app);
+    app.setStatus = (msg) => { if (msg && /failed/i.test(msg)) failures.push(msg); originalStatus(msg); };
+
+    const ids = app.commandIds.filter((id) => !skip.has(id));
+    for (const id of ids) {
+      // A dirty document makes file.new raise a *native* save prompt, which
+      // nothing here can dismiss. Keep it clean so that path stays in-page.
+      app.doc.markDirty(false);
+
+      // Commands that open a dialog only settle once it closes, so the modal
+      // has to be dismissed *while* the call is in flight, not after it.
+      const pending = app.run(id).catch((err) => {
+        failures.push(`${id} threw ${err.name}: ${err.message}`);
+      });
+
+      for (let guard = 0; guard < 4; guard++) {
+        await nextFrames(2);
+        const backdrop = document.querySelector('.modal-backdrop');
+        if (!backdrop) break;
+        // Escape resolves the dialog as cancelled. Clicking "the first
+        // non-primary button" is wrong: effect dialogs put Reset there, which
+        // does not close anything.
+        backdrop.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      }
+
+      // A command that still hasn't settled is blocked on something unattended;
+      // record it rather than hanging the suite. The timer must be cleared —
+      // Promise.race does not cancel the loser, so a live timer would report a
+      // timeout for every command that had already finished.
+      let timer;
+      await Promise.race([
+        pending,
+        new Promise((resolve) => {
+          timer = setTimeout(() => {
+            failures.push(`${id} did not settle within 5s`);
+            resolve();
+          }, 5000);
+        })
+      ]);
+      clearTimeout(timer);
+
+    }
+    app.setStatus = originalStatus;
+
+    check(`all ${ids.length} commands run without error`, failures.length === 0,
+      failures.slice(0, 3).join(' | '));
+    check('command sweep left no modal open', !document.querySelector('.modal-backdrop'));
+    await app.run('view.rulers', { value: true });    // the sweep called it with no value
+    app.selection.clear();
+  }
+
+  /* --- hiding the rulers must not take the canvas with them --- */
+  {
+    const viewport = document.getElementById('viewport');
+    const before = viewport.getBoundingClientRect().width;
+    await app.run('view.rulers', { value: false });
+    await nextFrames(2);
+    const hidden = viewport.getBoundingClientRect();
+    check('canvas survives hiding the rulers', hidden.width > 100 && hidden.height > 100,
+      `${Math.round(hidden.width)}x${Math.round(hidden.height)}`);
+    check('hiding the rulers actually hides them',
+      getComputedStyle(document.getElementById('ruler-h')).display === 'none');
+
+    await app.run('view.rulers', { value: true });
+    await nextFrames(2);
+    check('showing the rulers restores the layout',
+      Math.abs(viewport.getBoundingClientRect().width - before) < 2,
+      `${Math.round(viewport.getBoundingClientRect().width)} vs ${Math.round(before)}`);
+  }
+
   /* --- key hints on Windows and Linux --- */
   // Can't run those platforms here, so exercise the rewrite directly: on
   // non-macOS the UI must say Ctrl, not show a ⌘ that binds to nothing.

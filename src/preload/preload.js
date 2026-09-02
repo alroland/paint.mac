@@ -15,10 +15,8 @@ contextBridge.exposeInMainWorld('api', {
   readFile: (path) => ipcRenderer.invoke('fs:read', path),
   writeFile: (path, data) => ipcRenderer.invoke('fs:write', path, data),
 
-  writeClipboardImage: (dataURL) => ipcRenderer.invoke('clipboard:write-image', dataURL),
-  readClipboardImage: () => ipcRenderer.invoke('clipboard:read-image'),
-
   capturePage: (path) => ipcRenderer.invoke('dev:capture-page', path),
+  focusWindow: () => ipcRenderer.invoke('dev:focus-window'),
   selfTestDone: (result) => ipcRenderer.send('selftest:done', result),
 
   platform: process.platform,
