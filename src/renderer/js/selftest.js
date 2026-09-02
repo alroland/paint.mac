@@ -922,6 +922,84 @@ export async function run(app) {
     app.selection.clear();
   }
 
+  /* --- layers can be reordered by dragging them --- */
+  {
+    app.setDocument(PaintDocument.blank(60, 40, '#ffffff'), { name: 'reorder' });
+    app.doc.layers[0].name = 'A';
+    app.addLayer('B');
+    app.addLayer('C');
+    app.doc.emit('layers-changed');
+    await nextFrames(3);
+    const names = () => app.doc.layers.map((l) => l.name).join('');
+    check('three layers to reorder, bottom-up', names() === 'ABC', names());
+
+    // The panel lists top-down, so rows are C, B, A.
+    const rows = () => [...document.querySelectorAll('#layers-body .layer-row')];
+    check('the panel lists layers top-down',
+      rows().map((r) => r.querySelector('.layer-name').textContent).join('') === 'CBA',
+      rows().map((r) => r.querySelector('.layer-name').textContent).join(''));
+
+    // Drive real drag events, the way the browser would.
+    const dragRow = (fromRow, toRow, half) => {
+      const dt = new DataTransfer();
+      fromRow.dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer: dt }));
+      const r = toRow.getBoundingClientRect();
+      const clientY = r.top + (half === 'top' ? r.height * 0.25 : r.height * 0.75);
+      const opts = { bubbles: true, cancelable: true, dataTransfer: dt, clientX: r.left + 10, clientY };
+      toRow.dispatchEvent(new DragEvent('dragover', opts));
+      toRow.dispatchEvent(new DragEvent('drop', opts));
+      fromRow.dispatchEvent(new DragEvent('dragend', { bubbles: true, dataTransfer: dt }));
+    };
+
+    // Drag the top row (C) below the bottom row (A): C should end up lowest.
+    dragRow(rows()[0], rows()[2], 'bottom');
+    await nextFrames(3);
+    check('dragging a layer to the bottom reorders it', names() === 'CAB', names());
+    check('reordering is undoable',
+      app.history.entries[app.history.index]?.label === 'Reorder Layers',
+      app.history.entries[app.history.index]?.label);
+
+    app.undo();
+    await nextFrames(3);
+    check('undo restores the original order', names() === 'ABC', names());
+
+    // Drag the bottom row (A) above the top row (C): A should end up highest.
+    await nextFrames(2);
+    dragRow(rows()[2], rows()[0], 'top');
+    await nextFrames(3);
+    check('dragging a layer to the top reorders it', names() === 'BCA', names());
+
+    // Dropping a row back onto its own position must change nothing.
+    const settled = names();
+    const depth = app.history.entries.length;
+    dragRow(rows()[1], rows()[1], 'top');
+    await nextFrames(3);
+    check('dropping a layer on itself is a no-op',
+      names() === settled && app.history.entries.length === depth,
+      `${names()} vs ${settled}`);
+
+    // The real cause of the bug: the file-open handler claimed *every* drag and
+    // forced dropEffect to 'copy', which a move-only drag does not allow, so the
+    // browser refused the drop. dropEffect on a synthetic DataTransfer is not
+    // observable, but whether the handler called preventDefault is — and that is
+    // exactly the "I am taking this drag" signal.
+    const fileless = new DragEvent('dragover', {
+      bubbles: true, cancelable: true, dataTransfer: new DataTransfer()
+    });
+    document.body.dispatchEvent(fileless);
+    check('the file-drop handler leaves file-less drags alone',
+      !fileless.defaultPrevented,
+      'it claimed a drag carrying no files, which blocks in-app drag and drop');
+
+    // It must still claim a drag that does carry a file.
+    const withFile = new DataTransfer();
+    withFile.items.add(new File(['x'], 'shot.png', { type: 'image/png' }));
+    const fileDrag = new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: withFile });
+    document.body.dispatchEvent(fileDrag);
+    check('the file-drop handler still claims drags carrying files',
+      fileDrag.defaultPrevented, 'dropping an image file on the window would not open it');
+  }
+
   /* --- a floating paste can be resized by its handles --- */
   {
     app.setDocument(PaintDocument.blank(400, 300, '#ffffff'), { name: 'resize-paste' });

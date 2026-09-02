@@ -61,6 +61,18 @@ export function mountLayersPanel(app, listEl, propsEl) {
     return { name: l.name, visible: l.visible, opacity: l.opacity, blendMode: l.blendMode };
   }
 
+  /** True when the pointer is in the upper half of a row. */
+  function dropsAbove(row, e) {
+    const r = row.getBoundingClientRect();
+    return (e.clientY - r.top) < r.height / 2;
+  }
+
+  function clearDropMarks() {
+    for (const el of listEl.querySelectorAll('.drop-above, .drop-below')) {
+      el.classList.remove('drop-above', 'drop-below');
+    }
+  }
+
   function renderList() {
     const doc = app.doc;
     listEl.innerHTML = '';
@@ -116,16 +128,34 @@ export function mountLayersPanel(app, listEl, propsEl) {
         e.dataTransfer.effectAllowed = 'move';
         e.dataTransfer.setData('text/plain', String(i));
       });
-      row.addEventListener('dragover', (e) => { e.preventDefault(); row.classList.add('dragover'); });
-      row.addEventListener('dragleave', () => row.classList.remove('dragover'));
+      row.addEventListener('dragover', (e) => {
+        if (dragFrom === null) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        clearDropMarks();
+        row.classList.add(dropsAbove(row, e) ? 'drop-above' : 'drop-below');
+      });
+      row.addEventListener('dragleave', () => row.classList.remove('drop-above', 'drop-below'));
+      row.addEventListener('dragend', () => { dragFrom = null; clearDropMarks(); });
       row.addEventListener('drop', (e) => {
         e.preventDefault();
-        row.classList.remove('dragover');
-        if (dragFrom === null || dragFrom === i) return;
-        const before = captureDocState(doc, app.selection);
-        doc.moveLayer(dragFrom, i);
-        app.pushHistory(docStateEdit(doc, app.selection, before, 'Reorder Layers'));
+        e.stopPropagation();
+        const above = dropsAbove(row, e);
+        clearDropMarks();
+        if (dragFrom === null) return;
+        const from = dragFrom;
         dragFrom = null;
+
+        // The panel lists layers top-down while the array runs bottom-up, so
+        // dropping above a row means a higher index. Removing the dragged
+        // layer first shifts everything after it down by one.
+        const desired = i + (above ? 1 : 0);
+        const to = desired > from ? desired - 1 : desired;
+        if (to === from) return;
+
+        const before = captureDocState(doc, app.selection);
+        if (!doc.moveLayer(from, to)) return;
+        app.pushHistory(docStateEdit(doc, app.selection, before, 'Reorder Layers'));
         app.view.render();
       });
 

@@ -63,8 +63,19 @@ app.on('view-changed', () => {
 
 /* ---------- drag and drop ---------- */
 
-document.addEventListener('dragover', (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; });
+// Only claim drags that actually carry files. Claiming every drag forced
+// dropEffect to 'copy', which an in-app drag declaring effectAllowed 'move'
+// does not permit — so the browser refused those drops and layer reordering
+// silently did nothing.
+const carriesFiles = (e) => !!e.dataTransfer && [...(e.dataTransfer.types || [])].includes('Files');
+
+document.addEventListener('dragover', (e) => {
+  if (!carriesFiles(e)) return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'copy';
+});
 document.addEventListener('drop', async (e) => {
+  if (!carriesFiles(e)) return;
   e.preventDefault();
   const file = e.dataTransfer?.files?.[0];
   if (!file) return;

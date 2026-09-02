@@ -301,7 +301,9 @@ body[data-platform="darwin"] #titlebar { padding-left: 84px; }
   border-radius: 3px; font: inherit; padding: 0 3px; user-select: text;
 }
 .layer-sub { font-size: 10px; color: var(--text-faint); }
-.layer-row.dragover { border-top: 2px solid var(--accent); }
+/* Which side of the row the layer will land on. */
+.layer-row.drop-above { border-top: 2px solid var(--accent); }
+.layer-row.drop-below { border-bottom: 2px solid var(--accent); }
 #layer-props { display: flex; flex-direction: column; gap: 5px; }
 #layer-props .row { display: flex; align-items: center; gap: 6px; }
 #layer-props label { color: var(--text-dim); width: 44px; flex: 0 0 auto; font-size: 11px; }
