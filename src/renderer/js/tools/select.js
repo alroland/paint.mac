@@ -67,6 +67,13 @@ class ShapeSelectTool extends Tool {
     }
     const path = this.buildPath(r);
     this.selection.setFromPath(path, this._mode);
+    if (!this.options.antialias && this.selection.mask) {
+      // Rasterising a path always produces soft edges; hard-edge mode snaps
+      // each pixel to fully in or fully out.
+      const m = this.selection.mask;
+      for (let i = 0; i < m.length; i++) m[i] = m[i] >= 128 ? 255 : 0;
+      this.selection.setFromMask(m, COMBINE.REPLACE);
+    }
     if (this.options.feather > 0 && this.selection.mask) {
       this.selection.setFromMask(
         featherMask(this.selection.mask, this.doc.width, this.doc.height, this.options.feather),
@@ -278,12 +285,11 @@ export class MoveSelectionTool extends Tool {
 
   constructor(app) {
     super(app);
-    this.options = { interpolation: 'smooth' };
     this.dragging = false;
   }
 
   get schema() {
-    return [{ type: 'select', key: 'interpolation', label: 'Sampling', items: [['smooth', 'Smooth'], ['nearest', 'Nearest Neighbour']] }];
+    return [{ type: 'note', text: 'Drag the selected pixels. Arrow keys nudge, ⇧ constrains to one axis.' }];
   }
 
   onDown(pt) {
@@ -314,17 +320,8 @@ export class MoveSelectionTool extends Tool {
     return true;
   }
 
-  drawOverlay(g, view) {
-    const f = this.app.floating;
-    if (!f) return;
-    const a = view.toScreen(f.x, f.y);
-    const b = view.toScreen(f.x + f.canvas.width, f.y + f.canvas.height);
-    g.strokeStyle = 'rgba(80,160,255,.9)';
-    g.lineWidth = 1;
-    g.setLineDash([3, 3]);
-    g.strokeRect(a.x + 0.5, a.y + 0.5, b.x - a.x, b.y - a.y);
-    g.setLineDash([]);
-  }
+  // No overlay: the marching ants now travel with the floating pixels, so a
+  // second rectangle on top of them was just noise.
 }
 
 /** Moves only the selection outline, leaving pixels where they are. */

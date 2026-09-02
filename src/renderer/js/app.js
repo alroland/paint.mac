@@ -211,12 +211,24 @@ export class App extends Emitter {
   moveFloating(x, y) {
     const f = this.floating;
     if (!f) return;
+    const nx = Math.round(x), ny = Math.round(y);
+    const dx = nx - f.x, dy = ny - f.y;
+    if (dx === 0 && dy === 0) return;
+
     const prev = { x: f.x, y: f.y, w: f.canvas.width, h: f.canvas.height };
-    f.x = Math.round(x);
-    f.y = Math.round(y);
-    this.doc.overlay.x = f.x;
-    this.doc.overlay.y = f.y;
-    this.doc.invalidate(unionRect(prev, { x: f.x, y: f.y, w: f.canvas.width, h: f.canvas.height }));
+    f.x = nx;
+    f.y = ny;
+    this.doc.overlay.x = nx;
+    this.doc.overlay.y = ny;
+
+    // The marquee travels with the pixels. Leaving it behind until the drop
+    // makes it look as though the drag has come loose from the selection.
+    if (this.selection.active) {
+      this.selection.translate(dx, dy);
+      this.doc.emit('selection-changed');
+    }
+
+    this.doc.invalidate(unionRect(prev, { x: nx, y: ny, w: f.canvas.width, h: f.canvas.height }));
     this.view.render();
   }
 
@@ -229,7 +241,7 @@ export class App extends Emitter {
     const dx = f.x - f.startX, dy = f.y - f.startY;
     f.layer.ctx.drawImage(f.canvas, f.x, f.y);
     f.layer.touch();
-    if ((dx || dy) && this.selection.active) this.selection.translate(dx, dy);
+    // The selection already followed the pixels during the drag.
     this.doc.invalidateAll();
     this.doc.emit('selection-changed');
 

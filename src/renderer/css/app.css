@@ -177,7 +177,13 @@ body[data-platform="darwin"] #titlebar { padding-left: 84px; }
   grid-template-rows: var(--ruler) 1fr;
   background: var(--canvas-bg);
   min-width: 0; min-height: 0;
+  overflow: hidden;
 }
+/* Grid items default to min-height:auto, and for a <canvas> that resolves to
+   its intrinsic size — the width/height attributes we set from the element's
+   own measured size. That feeds back on itself and the row can only ever grow,
+   so the window stops being able to shrink. */
+#ruler-h, #ruler-v, #viewport { min-width: 0; min-height: 0; }
 #workarea.no-rulers { grid-template-columns: 0 1fr; grid-template-rows: 0 1fr; }
 #workarea.no-rulers #ruler-h, #workarea.no-rulers #ruler-v, #workarea.no-rulers #ruler-corner { display: none; }
 /* Placed explicitly rather than auto-flowed: hiding the rulers removes them
@@ -407,3 +413,23 @@ body[data-platform="darwin"] #titlebar { padding-left: 84px; }
 .about-by { margin-top: 7px; font-weight: 600; }
 .about-link { color: var(--accent); text-decoration: none; font-size: 11.5px; width: fit-content; }
 .about-link:hover { text-decoration: underline; }
+
+
+/* ---------- short windows ---------- */
+/* Twenty-three tools need about 730px of strip. Below that they were simply
+   unreachable: the strip scrolls, but its scrollbar is hidden. Give it a second
+   column instead of hiding tools behind an invisible scroll. */
+@media (max-height: 800px) {
+  :root { --tool-size: 66px; }
+  #toolstrip {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-content: flex-start;
+    justify-content: center;
+    gap: 2px 3px;
+  }
+  .tool-sep { flex: 0 0 100%; width: 26px; margin: 2px auto; }
+}
+@media (max-height: 620px) {
+  #panel-history { flex: 0 0 96px; }
+}

@@ -887,10 +887,18 @@ export async function run(app) {
     app.activeTool.onUp({ x: 110, y: 95 }, ev({ buttons: 0 }));
     check('dragging moves the pasted image', app.floating && app.floating.x === 90,
       `x=${app.floating?.x}`);
-    check('the selection follows the drag once committed', true);
+    // The marquee has to travel with the pixels while the drag is happening,
+    // not snap into place only once it is dropped.
+    check('the marquee follows the drag',
+      app.selection.bounds?.x === 90 && app.selection.bounds?.y === 80,
+      JSON.stringify(app.selection.bounds));
 
+    const draggedTo = { ...app.selection.bounds };
     const depth = app.history.entries.length;
     app.commitFloating();
+    check('committing does not shift the marquee a second time',
+      app.selection.bounds?.x === draggedTo.x && app.selection.bounds?.y === draggedTo.y,
+      `${JSON.stringify(app.selection.bounds)} vs ${JSON.stringify(draggedTo)}`);
     check('committing stamps the pixels down',
       Math.abs(pixel(app.doc.activeLayer.canvas, 110, 95)[0] - 0xe9) < 6,
       `got ${[...pixel(app.doc.activeLayer.canvas, 110, 95)]}`);
@@ -911,6 +919,38 @@ export async function run(app) {
     check('a paste left where it landed still commits',
       Math.abs(pixel(app.doc.activeLayer.canvas, 25, 20)[0] - 0xe9) < 6,
       `got ${[...pixel(app.doc.activeLayer.canvas, 25, 20)]}`);
+    app.selection.clear();
+  }
+
+  /* --- selection antialias toggle actually does something --- */
+  {
+    app.setDocument(PaintDocument.blank(120, 90, '#ffffff'), { name: 'aa' });
+    app.setTool('select-ellipse');
+    const tool = app.activeTool;
+
+    const softEdges = () => {
+      let soft = 0;
+      const m = app.selection.mask;
+      if (!m) return -1;
+      for (let i = 0; i < m.length; i++) if (m[i] > 0 && m[i] < 255) soft++;
+      return soft;
+    };
+
+    tool.options.antialias = true;
+    tool.onDown({ x: 20, y: 20 }, ev());
+    tool.onMove({ x: 90, y: 70 }, ev());
+    tool.onUp({ x: 90, y: 70 }, ev({ buttons: 0 }));
+    const soft = softEdges();
+    check('an antialiased ellipse selection has soft edge pixels', soft > 20, `${soft} soft px`);
+
+    tool.options.antialias = false;
+    tool.onDown({ x: 20, y: 20 }, ev());
+    tool.onMove({ x: 90, y: 70 }, ev());
+    tool.onUp({ x: 90, y: 70 }, ev({ buttons: 0 }));
+    const hard = softEdges();
+    check('turning antialias off gives hard edges', hard === 0, `${hard} soft px`);
+    check('a hard-edged selection still covers the shape',
+      app.selection.bounds && app.selection.bounds.w > 60, JSON.stringify(app.selection.bounds));
     app.selection.clear();
   }
 
@@ -1509,6 +1549,40 @@ export async function run(app) {
   const vp = document.getElementById('viewport').getBoundingClientRect();
   check('viewport fills the middle column', vp.width > 400 && vp.height > 300, `${Math.round(vp.width)}x${Math.round(vp.height)}`);
   check('no horizontal overflow', document.documentElement.scrollWidth <= window.innerWidth + 1);
+
+  // The window can be dragged down to its 900x600 minimum. Two things used to
+  // break there: the ruler canvases' intrinsic size ratcheted the work area
+  // taller than the window (pushing the status bar off-screen), and the tool
+  // strip silently hid tools behind a scrollbar it also hides.
+  {
+    const restore = { w: window.outerWidth, h: window.outerHeight };
+    window.resizeTo(900, 600);
+    await nextFrames(10);
+
+    const small = document.getElementById('viewport').getBoundingClientRect();
+    check('the viewport fits the window at minimum size',
+      small.bottom <= window.innerHeight + 1 && small.height > 100,
+      `bottom ${Math.round(small.bottom)} of ${window.innerHeight}, height ${Math.round(small.height)}`);
+
+    const status = document.getElementById('statusbar').getBoundingClientRect();
+    check('the status bar stays on screen at minimum size',
+      status.bottom <= window.innerHeight + 1 && status.height > 4,
+      `bottom ${Math.round(status.bottom)} of ${window.innerHeight}`);
+
+    const strip = document.getElementById('toolstrip');
+    check('every tool is reachable at minimum size',
+      strip.scrollHeight <= strip.clientHeight + 1,
+      `needs ${strip.scrollHeight}px, has ${strip.clientHeight}px`);
+
+    for (const id of ['toolstrip', 'sidebar', 'panel-layers', 'panel-history']) {
+      const r = document.getElementById(id).getBoundingClientRect();
+      check(`#${id} survives the minimum window size`, r.width > 2 && r.height > 2,
+        `${Math.round(r.width)}x${Math.round(r.height)}`);
+    }
+
+    window.resizeTo(restore.w, restore.h);
+    await nextFrames(8);
+  }
 
   // Draw one frame synchronously so the capture below shows real content.
   app.view._render();
