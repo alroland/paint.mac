@@ -164,8 +164,12 @@ export class App extends Emitter {
     this._floatBefore = captureDocState(this.doc, this.selection);
     eraseSelection(this.doc, this.selection, layer);
     this.floating = {
+      // `source` stays pristine: every resize re-samples from it, so scaling
+      // down and back up again does not accumulate blur.
+      source: ext.canvas,
       canvas: ext.canvas,
       x: ext.rect.x, y: ext.rect.y,
+      w: ext.rect.w, h: ext.rect.h,
       startX: ext.rect.x, startY: ext.rect.y,
       layer
     };
@@ -195,7 +199,9 @@ export class App extends Emitter {
     this.selection.setFromPath(marquee, COMBINE.REPLACE);
 
     this.floating = {
-      canvas, x: px, y: py, startX: px, startY: py, layer,
+      source: canvas, canvas,
+      x: px, y: py, w: canvas.width, h: canvas.height,
+      startX: px, startY: py, layer,
       // Pasted pixels are new, so they must be recorded even if never dragged.
       label: 'Paste', commitAlways: true
     };
@@ -215,7 +221,7 @@ export class App extends Emitter {
     const dx = nx - f.x, dy = ny - f.y;
     if (dx === 0 && dy === 0) return;
 
-    const prev = { x: f.x, y: f.y, w: f.canvas.width, h: f.canvas.height };
+    const prev = { x: f.x, y: f.y, w: f.w, h: f.h };
     f.x = nx;
     f.y = ny;
     this.doc.overlay.x = nx;
@@ -228,7 +234,41 @@ export class App extends Emitter {
       this.doc.emit('selection-changed');
     }
 
-    this.doc.invalidate(unionRect(prev, { x: nx, y: ny, w: f.canvas.width, h: f.canvas.height }));
+    this.doc.invalidate(unionRect(prev, { x: nx, y: ny, w: f.w, h: f.h }));
+    this.view.render();
+  }
+
+  /**
+   * Scales the floating pixels to a new rectangle, marquee included. Always
+   * re-samples from the untouched source rather than from the last scaled
+   * result, so dragging a handle back and forth costs nothing in quality.
+   */
+  resizeFloating(rect) {
+    const f = this.floating;
+    if (!f) return;
+    const w = Math.max(1, Math.round(rect.w));
+    const h = Math.max(1, Math.round(rect.h));
+    const x = Math.round(rect.x), y = Math.round(rect.y);
+    if (x === f.x && y === f.y && w === f.w && h === f.h) return;
+
+    const prev = { x: f.x, y: f.y, w: f.w, h: f.h };
+    const scaled = makeCanvas(w, h);
+    const g = scaled.getContext('2d');
+    g.imageSmoothingEnabled = true;
+    g.imageSmoothingQuality = 'high';
+    g.drawImage(f.source, 0, 0, f.source.width, f.source.height, 0, 0, w, h);
+
+    f.canvas = scaled;
+    f.x = x; f.y = y; f.w = w; f.h = h;
+    f.transformed = true;
+
+    this.doc.overlay.canvas = scaled;
+    this.doc.overlay.x = x;
+    this.doc.overlay.y = y;
+
+    this.selection.setRect(x, y, w, h);
+    this.doc.emit('selection-changed');
+    this.doc.invalidate(unionRect(prev, { x, y, w, h }));
     this.view.render();
   }
 
@@ -245,8 +285,9 @@ export class App extends Emitter {
     this.doc.invalidateAll();
     this.doc.emit('selection-changed');
 
-    if (dx || dy || f.commitAlways) {
-      this.pushHistory(docStateEdit(this.doc, this.selection, this._floatBefore, f.label || 'Move Selected Pixels'));
+    if (dx || dy || f.transformed || f.commitAlways) {
+      const label = f.label || (f.transformed ? 'Resize Selected Pixels' : 'Move Selected Pixels');
+      this.pushHistory(docStateEdit(this.doc, this.selection, this._floatBefore, label));
     } else if (this._floatBefore) {
       // Lifted then dropped in place: nothing changed, so drop the snapshot.
       this._floatBefore = null;
@@ -314,7 +355,10 @@ export class App extends Emitter {
         this._spacePan = { x: e.clientX, y: e.clientY };
         return;
       }
-      if (!active) return;
+      if (!active) {
+        this.activeTool?.onHover?.(pt, this._localEvent(e));
+        return;
+      }
       this.activeTool?.onMove(pt, this._localEvent(e));
     });
 

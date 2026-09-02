@@ -66,6 +66,24 @@ export class Selection {
     this._afterMaskChange();
   }
 
+  /**
+   * Fast path for a rectangular selection. Rasterising a Path2D costs a
+   * document-sized canvas plus a full getImageData readback, which is far too
+   * much to do on every frame of a resize drag; filling the rows directly is
+   * a few milliseconds even on a large page.
+   */
+  setRect(x, y, w, h) {
+    const W = this.width, H = this.height;
+    const x0 = clamp(Math.round(x), 0, W), y0 = clamp(Math.round(y), 0, H);
+    const x1 = clamp(Math.round(x + w), 0, W), y1 = clamp(Math.round(y + h), 0, H);
+    const mask = new Uint8Array(W * H);
+    if (x1 > x0 && y1 > y0) {
+      for (let row = y0; row < y1; row++) mask.fill(255, row * W + x0, row * W + x1);
+    }
+    this.mask = mask;
+    this._afterMaskChange(x1 > x0 && y1 > y0 ? { x: x0, y: y0, w: x1 - x0, h: y1 - y0 } : null);
+  }
+
   /** Rasterizes a Path2D (document coordinates) and combines it into the mask. */
   setFromPath(path, mode = COMBINE.REPLACE, evenOdd = false) {
     const c = makeCanvas(this.width, this.height);

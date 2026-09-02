@@ -275,9 +275,22 @@ export class MagicWandTool extends Tool {
  * floating layer so repeated drags don't smear the source, exactly like
  * Paint.NET's Move Selected Pixels.
  */
+/** Corner and edge grips, as fractions of the floating rectangle. */
+const HANDLES = [
+  ['nw', 0, 0], ['n', 0.5, 0], ['ne', 1, 0],
+  ['w', 0, 0.5], ['e', 1, 0.5],
+  ['sw', 0, 1], ['s', 0.5, 1], ['se', 1, 1]
+];
+const HANDLE_CURSORS = {
+  nw: 'nwse-resize', se: 'nwse-resize', ne: 'nesw-resize', sw: 'nesw-resize',
+  n: 'ns-resize', s: 'ns-resize', w: 'ew-resize', e: 'ew-resize'
+};
+const HANDLE_SIZE = 8;        // drawn, in screen pixels
+const HANDLE_GRAB = 11;       // hit radius, a little larger than it looks
+
 export class MoveSelectionTool extends Tool {
   static id = 'move-pixels';
-  static hint = 'Drag the selected pixels to a new spot. Arrow keys nudge.';
+  static hint = 'Drag the selected pixels, or drag a handle to resize them. Arrow keys nudge.';
   static label = 'Move Selected Pixels';
   static shortcut = 'M';
   static icon = ICONS.move;
@@ -286,28 +299,122 @@ export class MoveSelectionTool extends Tool {
   constructor(app) {
     super(app);
     this.dragging = false;
+    this.resizing = null;
   }
 
   get schema() {
-    return [{ type: 'note', text: 'Drag the selected pixels. Arrow keys nudge, ⇧ constrains to one axis.' }];
+    return [{ type: 'note', text: 'Drag to move, or drag a handle to resize. ⇧ keeps proportions, arrow keys nudge.' }];
+  }
+
+  get busy() { return !!(this.dragging || this.resizing); }
+
+  /** Screen-space position of one handle on the floating rectangle. */
+  handlePoint(id, view) {
+    const f = this.app.floating;
+    if (!f) return null;
+    const spec = HANDLES.find((h) => h[0] === id);
+    if (!spec) return null;
+    return view.toScreen(f.x + f.w * spec[1], f.y + f.h * spec[2]);
+  }
+
+  /** Which handle, if any, is under a document-space point. */
+  handleAt(pt) {
+    const f = this.app.floating;
+    if (!f) return null;
+    const view = this.app.view;
+    const at = view.toScreen(pt.x, pt.y);
+    for (const [id] of HANDLES) {
+      const p = this.handlePoint(id, view);
+      if (p && Math.abs(p.x - at.x) <= HANDLE_GRAB && Math.abs(p.y - at.y) <= HANDLE_GRAB) return id;
+    }
+    return null;
+  }
+
+  onHover(pt) {
+    if (this.dragging || this.resizing) return;
+    const id = this.app.floating ? this.handleAt(pt) : null;
+    this.app.viewport.style.cursor = id ? HANDLE_CURSORS[id] : this.constructor.cursor;
   }
 
   onDown(pt) {
-    this.app.liftFloating();
+    // Handles only exist once something is floating, so try to lift first.
+    const grabbed = this.app.floating ? this.handleAt(pt) : null;
+    if (!grabbed) this.app.liftFloating();
     if (!this.app.floating) return;
-    this.dragging = true;
+
+    const f = this.app.floating;
+    this._start = { x: f.x, y: f.y, w: f.w, h: f.h };
     this._grab = { x: pt.x, y: pt.y };
-    this._origin = { x: this.app.floating.x, y: this.app.floating.y };
+
+    const handle = grabbed || this.handleAt(pt);
+    if (handle) {
+      this.resizing = handle;
+      this.app.viewport.style.cursor = HANDLE_CURSORS[handle];
+      return;
+    }
+    this.dragging = true;
+    this._origin = { x: f.x, y: f.y };
   }
 
   onMove(pt, e) {
+    if (this.resizing) {
+      this.app.resizeFloating(this.rectFor(this.resizing, pt, e.shiftKey));
+      return;
+    }
     if (!this.dragging) return;
     let dx = pt.x - this._grab.x, dy = pt.y - this._grab.y;
     if (e.shiftKey) { if (Math.abs(dx) > Math.abs(dy)) dy = 0; else dx = 0; }
     this.app.moveFloating(this._origin.x + dx, this._origin.y + dy);
   }
 
-  onUp() { this.dragging = false; }
+  /**
+   * The rectangle a handle drag implies. Edges opposite the grabbed handle stay
+   * put; Shift keeps the original proportions.
+   */
+  rectFor(handle, pt, keepAspect) {
+    const s = this._start;
+    const dx = pt.x - this._grab.x;
+    const dy = pt.y - this._grab.y;
+    const west = handle.includes('w'), east = handle.includes('e');
+    const north = handle.includes('n'), south = handle.includes('s');
+
+    let left = s.x, top = s.y, right = s.x + s.w, bottom = s.y + s.h;
+    if (west) left += dx;
+    if (east) right += dx;
+    if (north) top += dy;
+    if (south) bottom += dy;
+
+    let w = Math.max(1, right - left);
+    let h = Math.max(1, bottom - top);
+
+    if (keepAspect && s.w > 0 && s.h > 0) {
+      const ratio = s.w / s.h;
+      // Corner drags follow whichever axis moved more; edge drags derive the
+      // other axis outright.
+      if ((west || east) && (north || south)) {
+        if (w / h > ratio) h = w / ratio; else w = h * ratio;
+      } else if (west || east) {
+        h = w / ratio;
+      } else {
+        w = h * ratio;
+      }
+      if (west) left = right - w;
+      if (north) top = bottom - h;
+    }
+
+    return { x: west ? right - w : left, y: north ? bottom - h : top, w, h };
+  }
+
+  onUp() {
+    this.dragging = false;
+    this.resizing = null;
+    this.app.viewport.style.cursor = this.constructor.cursor;
+  }
+
+  cancel() {
+    this.dragging = false;
+    this.resizing = null;
+  }
 
   onKeyDown(e) {
     const step = e.shiftKey ? 10 : 1;
@@ -320,8 +427,24 @@ export class MoveSelectionTool extends Tool {
     return true;
   }
 
-  // No overlay: the marching ants now travel with the floating pixels, so a
-  // second rectangle on top of them was just noise.
+  drawOverlay(g, view) {
+    const f = this.app.floating;
+    if (!f) return;
+    // The marching ants already show where the pixels are; these just say the
+    // edges can be grabbed.
+    for (const [id] of HANDLES) {
+      const p = this.handlePoint(id, view);
+      if (!p) continue;
+      const half = HANDLE_SIZE / 2;
+      g.fillStyle = '#ffffff';
+      g.strokeStyle = 'rgba(0,0,0,.75)';
+      g.lineWidth = 1;
+      g.beginPath();
+      g.rect(Math.round(p.x - half) + 0.5, Math.round(p.y - half) + 0.5, HANDLE_SIZE, HANDLE_SIZE);
+      g.fill();
+      g.stroke();
+    }
+  }
 }
 
 /** Moves only the selection outline, leaving pixels where they are. */

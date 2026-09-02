@@ -922,6 +922,81 @@ export async function run(app) {
     app.selection.clear();
   }
 
+  /* --- a floating paste can be resized by its handles --- */
+  {
+    app.setDocument(PaintDocument.blank(400, 300, '#ffffff'), { name: 'resize-paste' });
+    const art = makeCanvas(80, 60);
+    const ag = art.getContext('2d');
+    ag.fillStyle = '#00838f'; ag.fillRect(0, 0, 80, 60);
+    ag.fillStyle = '#ffeb3b'; ag.fillRect(0, 0, 40, 30);
+
+    app.pasteFloating(art, 100, 80);
+    app.setTool('move-pixels');
+    const move = app.activeTool;
+
+    // A handle sits on each corner and edge midpoint of the floating rect.
+    check('the south-east handle is grabbable', move.handleAt({ x: 180, y: 140 }) === 'se',
+      String(move.handleAt({ x: 180, y: 140 })));
+    check('the north-west handle is grabbable', move.handleAt({ x: 100, y: 80 }) === 'nw',
+      String(move.handleAt({ x: 100, y: 80 })));
+    check('the middle is not a handle', move.handleAt({ x: 140, y: 110 }) === null);
+
+    // Drag the SE handle out: the far corner stays put, the rect grows.
+    move.onDown({ x: 180, y: 140 }, ev());
+    check('grabbing a handle starts a resize, not a move', move.resizing === 'se' && !move.dragging);
+    move.onMove({ x: 260, y: 200 }, ev());
+    check('resizing grows the floating rect',
+      app.floating.w === 160 && app.floating.h === 120, `${app.floating.w}x${app.floating.h}`);
+    check('the opposite corner stays anchored',
+      app.floating.x === 100 && app.floating.y === 80, `${app.floating.x},${app.floating.y}`);
+    check('the marquee tracks the resize',
+      app.selection.bounds?.w === 160 && app.selection.bounds?.h === 120,
+      JSON.stringify(app.selection.bounds));
+    check('the scaled pixels show in the composite',
+      pixel(app.doc.getComposite(), 120, 100)[0] > 200,
+      `got ${[...pixel(app.doc.getComposite(), 120, 100)]}`);
+    move.onUp({ x: 260, y: 200 }, ev({ buttons: 0 }));
+
+    // Dragging the NW handle moves that corner and leaves SE anchored.
+    move.onDown({ x: 100, y: 80 }, ev());
+    move.onMove({ x: 140, y: 110 }, ev());
+    check('a north-west drag anchors the south-east corner',
+      app.floating.x + app.floating.w === 260 && app.floating.y + app.floating.h === 200,
+      `${app.floating.x + app.floating.w},${app.floating.y + app.floating.h}`);
+    move.onUp({ x: 140, y: 110 }, ev({ buttons: 0 }));
+
+    // Shift keeps the original proportions.
+    const ratio = app.floating.w / app.floating.h;
+    move.onDown({ x: 260, y: 200 }, ev());
+    move.onMove({ x: 340, y: 210 }, ev({ shiftKey: true }));
+    check('shift keeps the proportions while resizing',
+      Math.abs(app.floating.w / app.floating.h - ratio) < 0.02,
+      `${(app.floating.w / app.floating.h).toFixed(3)} vs ${ratio.toFixed(3)}`);
+    move.onUp({ x: 340, y: 210 }, ev({ buttons: 0 }));
+
+    // Repeated resizes must re-sample the original, not the last result.
+    app.resizeFloating({ x: 100, y: 80, w: 8, h: 6 });
+    app.resizeFloating({ x: 100, y: 80, w: 80, h: 60 });
+    const restored = pixel(app.floating.canvas, 10, 10);
+    check('resizing re-samples the source rather than compounding',
+      Math.abs(restored[0] - 0xff) < 12 && Math.abs(restored[1] - 0xeb) < 12,
+      `got ${[...restored]}`);
+
+    // Committing bakes the scaled pixels and records one undoable step.
+    app.resizeFloating({ x: 100, y: 80, w: 200, h: 150 });
+    const depth = app.history.entries.length;
+    app.commitFloating();
+    check('a resized paste commits its scaled pixels',
+      pixel(app.doc.activeLayer.canvas, 150, 120)[0] > 200,
+      `got ${[...pixel(app.doc.activeLayer.canvas, 150, 120)]}`);
+    check('a resize is undoable', app.history.entries.length === depth + 1);
+    app.undo();
+    check('undoing a resized paste clears it',
+      pixel(app.doc.activeLayer.canvas, 150, 120)[0] > 240,
+      `got ${[...pixel(app.doc.activeLayer.canvas, 150, 120)]}`);
+    app.selection.clear();
+  }
+
   /* --- selection antialias toggle actually does something --- */
   {
     app.setDocument(PaintDocument.blank(120, 90, '#ffffff'), { name: 'aa' });

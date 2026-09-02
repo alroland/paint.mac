@@ -24,7 +24,7 @@ live preview and deep undo.
 |  |  |
 |---|---|
 | **Layers** | Unlimited layers with per-layer opacity, visibility and 17 blend modes. Drag to reorder, rename in place, duplicate, merge down, flatten, import an image as a layer, flip or rotate/zoom a single layer. |
-| **Selections** | Rectangle, ellipse, lasso and magic wand, each with Replace / Add / Subtract / Intersect and optional feathering. Selections are 8-bit coverage masks, so soft edges survive every operation. |
+| **Selections** | Rectangle, ellipse, lasso and magic wand, each with Replace / Add / Subtract / Intersect and optional feathering. Selections are 8-bit coverage masks, so soft edges survive every operation. Pasted or lifted pixels float above the layer: drag to move them, or drag a handle to scale them (⇧ keeps proportions) before dropping. |
 | **Painting** | Pencil, paintbrush (size, hardness, flow, pen pressure), eraser, paint bucket with tolerance and feathering, four gradient types, colour picker, clone stamp and recolour. |
 | **Shapes & text** | Line with arrowheads, rectangle, rounded rectangle, ellipse, polygon/star and freeform — each with independent outline and fill colours, five border styles and configurable line ends. Text is typed directly on the canvas. |
 | **Adjustments** | Auto level, black & white, invert, sepia, brightness/contrast, hue/saturation, levels with a histogram, curves, posterize and colour temperature. |
@@ -286,7 +286,7 @@ npm test                 # the full suite
 2. **Shutdown** — the app is launched four times and must actually exit each time: clean document,
    window-closed-first, after answering the unsaved-changes prompt, and with a renderer that never
    responds.
-3. **Behaviour** — 242 assertions driving the real tools and document model: strokes and undo,
+3. **Behaviour** — 256 assertions driving the real tools and document model: strokes and undo,
    selection clipping, feathered masks, the magic wand and selection translate (both compared against
    brute-force reference implementations, with worst-case timing budgets), layer operations, every
    effect, transforms, the `.pmac` round trip through real IPC, export, history navigation,
