@@ -1,7 +1,7 @@
 {
   "name": "paint-mac",
   "productName": "Paint.mac",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A fast, native-feeling Paint.NET-style raster image editor for macOS.",
   "main": "src/main/main.js",
   "author": {

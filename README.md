@@ -70,8 +70,8 @@ Grab the build for your platform from the [Releases page](https://github.com/alr
 
 | Download | For |
 |---|---|
-| `Paint.mac-1.0.0-arm64.dmg` | Apple Silicon (M1 and later) |
-| `Paint.mac-1.0.0-x64.dmg` | Intel Macs |
+| `Paint.mac-1.0.1-arm64.dmg` | Apple Silicon (M1 and later) |
+| `Paint.mac-1.0.1-x64.dmg` | Intel Macs |
 
 Open the disk image and drag **Paint.mac** into Applications.
 
@@ -89,9 +89,9 @@ xattr -dr com.apple.quarantine /Applications/Paint.mac.app
 
 | Download | For |
 |---|---|
-| `Paint.mac-1.0.0-Setup-x64.exe` | Installer, 64-bit |
-| `Paint.mac-1.0.0-Setup-arm64.exe` | Installer, ARM64 |
-| `Paint.mac-1.0.0-portable.exe` | No install, runs from anywhere |
+| `Paint.mac-1.0.1-Setup-x64.exe` | Installer, 64-bit |
+| `Paint.mac-1.0.1-Setup-arm64.exe` | Installer, ARM64 |
+| `Paint.mac-1.0.1-portable.exe` | No install, runs from anywhere |
 
 The installer is unsigned, so SmartScreen will warn on first run — choose **More info → Run anyway**.
 
@@ -99,18 +99,18 @@ The installer is unsigned, so SmartScreen will warn on first run — choose **Mo
 
 | Download | For |
 |---|---|
-| `Paint.mac-1.0.0.AppImage` | Any distribution, x86-64 |
-| `Paint.mac-1.0.0-arm64.AppImage` | Any distribution, ARM64 |
-| `paint-mac_1.0.0_amd64.deb` | Debian, Ubuntu, Mint — x86-64 |
-| `paint-mac_1.0.0_arm64.deb` | Debian, Ubuntu, Mint — ARM64 |
+| `Paint.mac-1.0.1.AppImage` | Any distribution, x86-64 |
+| `Paint.mac-1.0.1-arm64.AppImage` | Any distribution, ARM64 |
+| `paint-mac_1.0.1_amd64.deb` | Debian, Ubuntu, Mint — x86-64 |
+| `paint-mac_1.0.1_arm64.deb` | Debian, Ubuntu, Mint — ARM64 |
 
 ```bash
 # AppImage — no installation needed
-chmod +x Paint.mac-1.0.0.AppImage
-./Paint.mac-1.0.0.AppImage
+chmod +x Paint.mac-1.0.1.AppImage
+./Paint.mac-1.0.1.AppImage
 
 # Debian / Ubuntu
-sudo apt install ./paint-mac_1.0.0_amd64.deb
+sudo apt install ./paint-mac_1.0.1_amd64.deb
 ```
 
 No `.rpm` is published yet — building one needs `rpmbuild`, which isn't available on the
