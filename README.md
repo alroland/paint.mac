@@ -75,15 +75,42 @@ Grab the build for your platform from the [Releases page](https://github.com/alr
 
 Open the disk image and drag **Paint.mac** into Applications.
 
-The app is ad-hoc signed but **not notarised**, so macOS blocks the first launch. Open it once, dismiss
-the warning, then go to **System Settings → Privacy & Security** and click **Open Anyway** next to the
-Paint.mac message. (Right-click → Open no longer bypasses Gatekeeper on macOS 15 and later.)
+#### Getting past Gatekeeper
 
-Or clear the quarantine flag from the terminal, which skips the prompt entirely:
+Paint.mac is ad-hoc signed but **not notarised** — there is no Apple Developer certificate behind this
+project — so macOS blocks the first launch. Anything you download through a browser also gets a
+`com.apple.quarantine` flag, and that flag is what triggers the block. Two ways through it.
+
+**Option 1 — remove the quarantine flag (one command, no prompts).**
+
+Do this *before* opening the disk image and the copied app inherits a clean state:
+
+```bash
+xattr -dr com.apple.quarantine ~/Downloads/Paint.mac-1.0.1-arm64.dmg
+```
+
+Or, if you have already installed it:
 
 ```bash
 xattr -dr com.apple.quarantine /Applications/Paint.mac.app
 ```
+
+`-d` deletes one attribute, `-r` applies it through the whole bundle. It does not touch the code
+signature — the app still verifies afterwards. Confirm it worked; **no output means the flag is gone**:
+
+```bash
+xattr -p com.apple.quarantine /Applications/Paint.mac.app
+# xattr: ...: No such xattr: com.apple.quarantine   ← this is what you want
+```
+
+**Option 2 — approve it in System Settings.**
+
+Double-click the app, dismiss the warning, then open **System Settings → Privacy & Security**, scroll
+to Security, and click **Open Anyway** next to the Paint.mac message. Right-click → Open no longer
+works as a bypass on macOS 15 and later.
+
+> If you instead see **"Paint.mac is damaged and can't be opened"**, you have a build from before
+> 1 Sep 2026, when the macOS artifacts carried a broken signature. Download it again.
 
 ### Windows
 
@@ -95,6 +122,13 @@ xattr -dr com.apple.quarantine /Applications/Paint.mac.app
 
 The installer is unsigned, so SmartScreen will warn on first run — choose **More info → Run anyway**.
 
+Windows marks downloaded files much as macOS does. If the installer refuses to start, unblock it:
+right-click the `.exe` → **Properties** → tick **Unblock** → OK. Or in PowerShell:
+
+```powershell
+Unblock-File -Path .\Paint.mac-1.0.1-Setup-x64.exe
+```
+
 ### Linux
 
 | Download | For |
@@ -103,6 +137,8 @@ The installer is unsigned, so SmartScreen will warn on first run — choose **Mo
 | `Paint.mac-1.0.1-arm64.AppImage` | Any distribution, ARM64 |
 | `paint-mac_1.0.1_amd64.deb` | Debian, Ubuntu, Mint — x86-64 |
 | `paint-mac_1.0.1_arm64.deb` | Debian, Ubuntu, Mint — ARM64 |
+
+Linux has no quarantine flag — an AppImage just needs the executable bit.
 
 ```bash
 # AppImage — no installation needed
