@@ -1,0 +1,54 @@
+#!/usr/bin/env python3
+"""A minimal `ar` that writes plain archives, for building .deb packages on macOS.
+
+fpm assembles a .deb by calling `ar -qc out debian-binary control.tar.gz
+data.tar.xz`. Apple's ar treats that as a static *library*: it runs ranlib,
+warns "archive member 'debian-binary' not a mach-o file", and emits a 96-byte
+archive containing only a symbol table — the payload is silently dropped.
+
+A .deb is just an ar archive with three members in order, so this writes one
+directly, in the same layout dpkg-deb produces. Put this directory first on PATH
+when running electron-builder for a Linux deb target.
+"""
+
+import os
+import sys
+
+GLOBAL_HEADER = b"!<arch>\n"
+
+
+def member_header(name: str, size: int, mtime: int) -> bytes:
+    # dpkg-deb pads names with spaces and uses no GNU-style trailing slash.
+    return (
+        f"{name:<16}"      # name
+        f"{mtime:<12}"     # mtime
+        f"{0:<6}"          # uid
+        f"{0:<6}"          # gid
+        f"{'100644':<8}"   # mode
+        f"{size:<10}"      # size
+    ).encode("ascii") + b"`\n"
+
+
+def main(argv):
+    args = [a for a in argv[1:] if not a.startswith("-")]
+    if len(args) < 2:
+        sys.stderr.write("ar: expected an output path and at least one member\n")
+        return 1
+
+    output, members = args[0], args[1:]
+    mtime = int(os.environ.get("SOURCE_DATE_EPOCH", 0)) or 0
+
+    with open(output, "wb") as out:
+        out.write(GLOBAL_HEADER)
+        for path in members:
+            with open(path, "rb") as f:
+                data = f.read()
+            out.write(member_header(os.path.basename(path), len(data), mtime))
+            out.write(data)
+            if len(data) % 2:      # members are padded to an even offset
+                out.write(b"\n")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

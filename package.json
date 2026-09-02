@@ -19,9 +19,10 @@
     "icon": "node scripts/make-icon.mjs",
     "dist:mac": "electron-builder --mac",
     "dist:win": "electron-builder --win",
-    "dist:linux": "electron-builder --linux",
+    "dist:linux": "node scripts/build-linux.mjs",
     "screenshots": "node scripts/make-screenshots.mjs",
-    "perf": "electron . --dev --perf"
+    "perf": "electron . --dev --perf",
+    "verify:dist": "node scripts/check-artifacts.mjs"
   },
   "devDependencies": {
     "electron": "^44.0.0",
