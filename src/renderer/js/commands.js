@@ -25,11 +25,17 @@ export function registerCommands(app) {
 
     'file.new': async () => {
       if (!(await confirmDiscard(app))) return;
+      // Default to the clipboard image's size when there is one.
+      let size = { width: 1200, height: 800 };
+      try {
+        const clip = await io.readClipboardCanvas();
+        if (clip) size = { width: clip.width, height: clip.height };
+      } catch { /* no usable clipboard: keep the default size */ }
       const v = await showDialog({
         title: 'New Image',
         fields: [
-          { type: 'number', key: 'width', label: 'Width', value: 1200, min: 1, max: 20000, unit: 'px' },
-          { type: 'number', key: 'height', label: 'Height', value: 800, min: 1, max: 20000, unit: 'px' },
+          { type: 'number', key: 'width', label: 'Width', value: size.width, min: 1, max: 20000, unit: 'px' },
+          { type: 'number', key: 'height', label: 'Height', value: size.height, min: 1, max: 20000, unit: 'px' },
           { type: 'select', key: 'background', label: 'Background', value: 'white', items: [['white', 'White'], ['transparent', 'Transparent'], ['secondary', 'Secondary colour']] }
         ],
         okLabel: 'Create'

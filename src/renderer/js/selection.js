@@ -423,14 +423,17 @@ export function magicWandMask(data, w, h, sx, sy, tolerance, global = false, sam
   const out = new Uint8Array(w * h);
   sx = clamp(Math.floor(sx), 0, w - 1);
   sy = clamp(Math.floor(sy), 0, h - 1);
-  const si = (sy * w + sx) * 4;
-  const sr = data[si], sg = data[si + 1], sb = data[si + 2], sa = data[si + 3];
+  // Colours are compared premultiplied by alpha, so the meaningless RGB stored
+  // under transparent pixels can't make clear areas look different.
+  const p0 = (sy * w + sx) * 4, a0 = data[p0 + 3] / 255;
+  const sr = data[p0] * a0, sg = data[p0 + 1] * a0, sb = data[p0 + 2] * a0, sa = data[p0 + 3];
   // Tolerance is a 0-100 slider; square it into the same distance space we test.
   const tol = (tolerance / 100) * 255;
   const tolSq = tol * tol * (sampleAlpha ? 4 : 3);
 
   const matches = (i) => {
-    const dr = data[i] - sr, dg = data[i + 1] - sg, db = data[i + 2] - sb;
+    const a = data[i + 3] / 255;
+    const dr = data[i] * a - sr, dg = data[i + 1] * a - sg, db = data[i + 2] * a - sb;
     let d = dr * dr + dg * dg + db * db;
     if (sampleAlpha) { const da = data[i + 3] - sa; d += da * da; }
     return d <= tolSq;

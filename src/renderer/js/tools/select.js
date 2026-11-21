@@ -4,7 +4,7 @@
 import { Tool, ICONS, constrainSquare } from './base.js';
 import { COMBINE, magicWandMask, featherMask } from '../selection.js';
 import { selectionEdit } from '../history.js';
-import { rectFromPoints, normalizeRect, makeCanvas } from '../util.js';
+import { rectFromPoints, normalizeRect, makeCanvas, clamp } from '../util.js';
 
 /** Shift adds, Alt subtracts, Shift+Alt intersects — the Paint.NET convention. */
 function combineModeFor(e, fallback) {
@@ -228,7 +228,7 @@ export class LassoSelectTool extends Tool {
 
 export class MagicWandTool extends Tool {
   static id = 'magic-wand';
-  static hint = 'Select regions of similar colour. Raise the tolerance to catch more.';
+  static hint = 'Select regions of similar colour. Drag sideways after clicking, or move the Tolerance slider, to adjust live.';
   static label = 'Magic Wand';
   static shortcut = 'W';
   static icon = ICONS.wand;
@@ -260,11 +260,60 @@ export class MagicWandTool extends Tool {
     const sctx = src.getContext('2d', { willReadFrequently: true });
     const data = sctx.getImageData(0, 0, w, h).data;
 
-    let mask = magicWandMask(data, w, h, pt.x, pt.y, this.options.tolerance, this.options.global);
-    if (this.options.feather > 0) mask = featherMask(mask, w, h, this.options.feather);
+    const live = {
+      data, w, h, x: pt.x, y: pt.y, before,
+      mode: combineModeFor(e, this.options.mode),
+      entry: { label: 'Magic Wand', bytes: 0, after: null, undo: null, redo: null }
+    };
+    const apply = (m) => { this.selection.restore(m); this.doc.emit('selection-changed'); };
+    live.entry.undo = () => apply(before);
+    live.entry.redo = () => apply(live.entry.after);
 
-    this.selection.setFromMask(mask, combineModeFor(e, this.options.mode));
-    this.app.pushHistory(selectionEdit(this.doc, this.selection, before, 'Magic Wand'));
+    this._live = live;
+    this._dragFrom = { x: e.clientX, tolerance: this.options.tolerance };
+    this._recompute();
+    live.entry.after = this.selection.snapshot();
+    live.entry.bytes = (before?.length || 0) + (live.entry.after?.length || 0);
+    this.app.pushHistory(live.entry);
+  }
+
+  /** Dragging sideways after the click adjusts the tolerance live. */
+  onMove(_pt, e) {
+    if (!this._dragFrom || !this._live) return;
+    const t = clamp(Math.round(this._dragFrom.tolerance + (e.clientX - this._dragFrom.x) / 3), 0, 100);
+    if (t === this.options.tolerance) return;
+    this.options.tolerance = t;
+    this.refresh();
+    this.app.emit('tool-options-changed');
+  }
+
+  onUp() { this._dragFrom = null; }
+
+  deactivate() { this._live = null; this._dragFrom = null; super.deactivate(); }
+
+  /** True while the last wand click is still the newest thing in history. */
+  _liveValid() {
+    const h = this.app.history;
+    return !!this._live && h.entries[h.index] === this._live.entry;
+  }
+
+  /** Re-runs the last click with the current options, replacing its selection. */
+  refresh() {
+    if (!this._liveValid()) { this._live = null; return; }
+    this._recompute();
+    const entry = this._live.entry;
+    const after = this.selection.snapshot();
+    this.app.history.bytes += (after?.length || 0) - (entry.after?.length || 0);
+    entry.after = after;
+    this.doc.emit('selection-changed');
+  }
+
+  _recompute() {
+    const { data, w, h, x, y, before, mode } = this._live;
+    this.selection.restore(before);
+    let mask = magicWandMask(data, w, h, x, y, this.options.tolerance, this.options.global);
+    if (this.options.feather > 0) mask = featherMask(mask, w, h, this.options.feather);
+    this.selection.setFromMask(mask, mode);
     this.doc.emit('selection-changed');
     this.app.view.render();
   }
